@@ -9,6 +9,8 @@ import {
   Switch,
   Modal,
   Image,
+  Animated,
+  PanResponder,
   Alert,
   ActivityIndicator,
   FlatList,
@@ -24,6 +26,8 @@ import * as Clipboard from 'expo-clipboard';
 import * as Speech from 'expo-speech';
 import { HistoryRow, initDb } from './src/db/historyDb';
 import { useHistory } from './src/hooks/useHistory';
+import { useAssistant } from './src/assistant/useAssistant';
+import { useConnectivity } from './src/assistant/connectivity';
 
 type TabType = 'home' | 'explain' | 'history' | 'settings' | 'profile';
 type ExplainSubTab = 'explain' | 'summary' | 'photo';
@@ -39,6 +43,7 @@ const NAV_MARGIN = 12;
 
 const MASCOT_IMAGE = require('./assets/GabAI Logo.png');
 const HISTORY_SETTING_KEY = 'gabai.history.enabled';
+const ONLINE_VOICE_SETTING_KEY = 'gabai.online.voice.enabled';
 
 const TABS: { key: TabType; label: Record<LanguageType, string>; on: any; off: any }[] = [
   { key: 'home', label: { EN: 'Home', FIL: 'Tahanan' }, on: 'home', off: 'home-outline' },
@@ -57,7 +62,7 @@ const greeting = (lang: LanguageType) => {
 
 function MainApp() {
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const [databaseReady, setDatabaseReady] = useState(false);
   const [databaseError, setDatabaseError] = useState<string | null>(null);
   const [active, setActive] = useState(false);
@@ -66,6 +71,11 @@ function MainApp() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState('1x');
   const [language, setLanguage] = useState<LanguageType>('EN');
+  const [onlineVoiceEnabled, setOnlineVoiceEnabled] = useState(false);
+  const connectivity = useConnectivity(onlineVoiceEnabled);
+  const assistant = useAssistant(language === 'FIL' ? 'fil' : 'en', connectivity.mode);
+  const bubblePosition = useRef(new Animated.ValueXY()).current;
+  const waveformProgress = useRef(new Animated.Value(0)).current;
   const [historySearch, setHistorySearch] = useState('');
   const [selectedHistory, setSelectedHistory] = useState<HistoryRow | null>(null);
   const {
@@ -123,7 +133,58 @@ function MainApp() {
       .catch((error: unknown) => console.error('Failed to load history setting', error));
   }, []);
 
+  useEffect(() => {
+    AsyncStorage.getItem(ONLINE_VOICE_SETTING_KEY)
+      .then((value) => {
+        if (value !== null) setOnlineVoiceEnabled(value === 'true');
+      })
+      .catch((error: unknown) => console.error('Failed to load online voice setting', error));
+  }, []);
+
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+
+  useEffect(() => {
+    if (!assistant.isSpeaking) {
+      waveformProgress.stopAnimation();
+      waveformProgress.setValue(0);
+      return;
+    }
+
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(waveformProgress, { toValue: 1, duration: 450, useNativeDriver: true }),
+        Animated.timing(waveformProgress, { toValue: 0, duration: 450, useNativeDriver: true }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [assistant.isSpeaking, waveformProgress]);
+
+  const bubblePanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderMove: Animated.event(
+        [null, { dx: bubblePosition.x, dy: bubblePosition.y }],
+        { useNativeDriver: false },
+      ),
+      onPanResponderRelease: (_event, gestureState) => {
+        if (Math.abs(gestureState.dx) < 8 && Math.abs(gestureState.dy) < 8) {
+          setFloatingVisible(true);
+          return;
+        }
+
+        const snapLeft = gestureState.dx < -(width / 2 - PAD - 30);
+        const targetX = snapLeft ? -(width - (PAD * 2) - 60) : 0;
+        const targetY = Math.max(-height / 2, Math.min(height / 2, gestureState.dy));
+        Animated.spring(bubblePosition, {
+          toValue: { x: targetX, y: targetY },
+          useNativeDriver: false,
+          bounciness: 8,
+        }).start();
+      },
+    }),
+  ).current;
 
   useEffect(() => {
     if (tab === 'history' && databaseReady) void refreshHistory();
@@ -159,6 +220,17 @@ function MainApp() {
       enabled
         ? (language === 'FIL' ? 'Naka-on ang pag-save ng history' : 'History saving enabled')
         : (language === 'FIL' ? 'Naka-off ang pag-save ng history' : 'History saving disabled'),
+    );
+  };
+
+  const setOnlineVoice = (enabled: boolean) => {
+    setOnlineVoiceEnabled(enabled);
+    AsyncStorage.setItem(ONLINE_VOICE_SETTING_KEY, String(enabled))
+      .catch((error: unknown) => console.error('Failed to save online voice setting', error));
+    showToast(
+      enabled
+        ? (language === 'FIL' ? 'Naka-on ang online na boses' : 'Online voice enabled')
+        : (language === 'FIL' ? 'Naka-off ang online na boses' : 'Online voice disabled'),
     );
   };
 
@@ -980,6 +1052,26 @@ function MainApp() {
               <Text style={s.settingCardSubtitle}>English · 1x · Offline</Text>
             </TouchableOpacity>
 
+            <View style={[s.settingCard, { backgroundColor: '#dcfce7', borderColor: '#bbf7d0', width: cardWidth }]}>
+              <View style={s.settingCardTopRow}>
+                <View style={[s.settingIconBox, { backgroundColor: '#16a34a' }]}>
+                  <Ionicons name="cloud-outline" size={20} color="#fff" />
+                </View>
+                <Switch
+                  value={onlineVoiceEnabled}
+                  onValueChange={setOnlineVoice}
+                  trackColor={{ false: '#cbd5e1', true: '#16a34a' }}
+                  thumbColor="#fff"
+                />
+              </View>
+              <Text style={[s.settingCardTitle, { marginTop: 16 }]}>
+                {language === 'FIL' ? 'Online na boses (Agora)' : 'Online voice (Agora)'}
+              </Text>
+              <Text style={s.settingCardSubtitle}>
+                {language === 'FIL' ? 'Opsyonal' : 'Optional'}
+              </Text>
+            </View>
+
             <View style={[s.settingCard, { backgroundColor: '#e0f2fe', borderColor: '#bae6fd', width: cardWidth }]}>
               <View style={s.settingCardTopRow}>
                 <View style={[s.settingIconBox, { backgroundColor: '#0284c7' }]}>
@@ -1208,30 +1300,37 @@ function MainApp() {
         <View style={s.modalOverlay}>
           <View style={s.floatingOuterBox}>
             <View style={s.floatingHeaderRow}>
-              <View style={s.pill}>
-                <Ionicons name="shield-checkmark-outline" size={13} color="#059669" />
-                <Text style={s.pillText}>Offline</Text>
+              <View style={[s.pill, assistant.mode === 'online' ? s.onlinePill : s.offlinePill]}>
+                <Ionicons
+                  name={assistant.mode === 'online' ? 'cloud-outline' : 'shield-checkmark-outline'}
+                  size={13}
+                  color={assistant.mode === 'online' ? '#15803d' : '#64748b'}
+                />
+                <Text style={[s.pillText, { color: assistant.mode === 'online' ? '#166534' : '#475569' }]}>
+                  {assistant.mode === 'online' ? 'Online' : 'Offline'}
+                </Text>
               </View>
               <Text style={s.floatingTitle}>GabAI</Text>
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => {
-                  setFloatingVisible(false);
-                  showToast('Floating Assistant closed');
-                }}
-                style={s.closeIconBtn}
-              >
-                <Ionicons name="close" size={20} color="#0f172a" />
-              </TouchableOpacity>
+              <View style={s.floatingHeaderRight}>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={toggleLanguage}
+                  style={s.pill}
+                  accessibilityLabel={language === 'FIL' ? 'Lumipat sa English' : 'Switch to Filipino'}
+                >
+                  <Text style={language === 'EN' ? s.lang : s.langOff}>EN</Text>
+                  <Text style={s.langSep}>|</Text>
+                  <Text style={language === 'FIL' ? s.lang : s.langOff}>FIL</Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.floatingActionRow}>
               {[
-                { label: language === 'FIL' ? 'Basahin' : 'Read', icon: <Ionicons name="scan-outline" size={18} color="#fff" />, bg: '#3b82f6' },
-                { label: language === 'FIL' ? 'Ipaliwanag' : 'Explain', icon: <Ionicons name="sparkles" size={18} color="#fff" />, bg: '#7c3aed' },
-                { label: language === 'FIL' ? 'Buod' : 'Summary', icon: <MaterialCommunityIcons name="format-list-bulleted" size={18} color="#fff" />, bg: '#be185d' },
-                { label: language === 'FIL' ? 'Makinig' : 'Listen', icon: <Ionicons name="volume-high" size={18} color="#fff" />, bg: '#ea580c' },
-                { label: language === 'FIL' ? 'Isara' : 'Close', icon: <Ionicons name="close" size={18} color="#fff" />, bg: '#f59e0b' },
+                { key: 'read', label: language === 'FIL' ? 'Basahin' : 'Read', icon: <Ionicons name="scan-outline" size={18} color="#fff" />, bg: '#3b82f6' },
+                { key: 'explain', label: language === 'FIL' ? 'Ipaliwanag' : 'Explain', icon: <Ionicons name="sparkles" size={18} color="#fff" />, bg: '#7c3aed' },
+                { key: 'summarize', label: language === 'FIL' ? 'Buod' : 'Summary', icon: <MaterialCommunityIcons name="format-list-bulleted" size={18} color="#fff" />, bg: '#be185d' },
+                { key: 'speak', label: language === 'FIL' ? 'Pakinggan' : 'Listen', icon: <Ionicons name="volume-high" size={18} color="#fff" />, bg: '#ea580c' },
               ].map((act, idx) => {
                 const isSelected = floatingAction === act.label;
                 return (
@@ -1240,11 +1339,14 @@ function MainApp() {
                     activeOpacity={0.8}
                     onPress={() => {
                       setFloatingAction(act.label);
-                      if (act.label === 'Close' || act.label === 'Isara') {
-                        setFloatingVisible(false);
-                        showToast(language === 'FIL' ? 'Naka-minimize ang katulong' : 'Assistant minimized');
+                      if (act.key === 'read') {
+                        void assistant.read();
+                      } else if (act.key === 'explain') {
+                        void assistant.explain();
+                      } else if (act.key === 'summarize') {
+                        void assistant.summarize();
                       } else {
-                        showToast(`Action selected: ${act.label}`);
+                        void assistant.speak();
                       }
                     }}
                     style={s.floatingActionItem}
@@ -1262,26 +1364,46 @@ function MainApp() {
 
             <View style={s.floatingInfoCard}>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                <Ionicons name="checkmark" size={16} color="#0f172a" style={{ marginRight: 6 }} />
+                <Ionicons
+                  name={assistant.status === 'error' ? 'alert-circle' : assistant.status === 'loading' ? 'hourglass' : 'checkmark'}
+                  size={16}
+                  color={assistant.status === 'error' ? '#b91c1c' : '#0f172a'}
+                  style={{ marginRight: 6 }}
+                />
                 <Text style={{ fontSize: 14, fontWeight: '700', color: '#0f172a' }}>
-                  {language === 'FIL' ? 'Handang tumulong' : 'Ready to help'}
+                  {assistant.status === 'loading'
+                    ? (language === 'FIL' ? 'Binabasa ang screen...' : 'Reading the screen...')
+                    : assistant.status === 'result'
+                      ? (language === 'FIL' ? 'Narito ang resulta' : 'Here is the result')
+                      : assistant.status === 'error'
+                        ? (language === 'FIL' ? 'May problema' : 'Something went wrong')
+                        : (language === 'FIL' ? 'Handang tumulong' : 'Ready to help')}
                 </Text>
               </View>
-              <Text style={{ fontSize: 13, color: '#475569', marginBottom: 16 }}>
-                {language === 'FIL' ? 'Pumili ng aksyon sa itaas.' : 'Choose an action above.'}
-              </Text>
+              <ScrollView style={{ maxHeight: 130 }} nestedScrollEnabled>
+                <Text style={{ fontSize: 13, color: assistant.status === 'error' ? '#b91c1c' : '#475569', marginBottom: 16 }}>
+                  {assistant.status === 'loading'
+                    ? (language === 'FIL' ? 'Sandali lang...' : 'Please wait...')
+                    : assistant.resultText || (language === 'FIL' ? 'Pumili ng aksyon sa itaas.' : 'Choose an action above.')}
+                </Text>
+              </ScrollView>
+              {!!assistant.voiceNote && (
+                <Text style={s.voiceFallbackNote}>{assistant.voiceNote}</Text>
+              )}
 
               <View style={s.audioBar}>
                 <TouchableOpacity
                   activeOpacity={0.8}
                   onPress={() => {
-                    const nextPlay = !isPlaying;
-                    setIsPlaying(nextPlay);
-                    showToast(nextPlay ? 'Playing audio...' : 'Audio paused.');
+                    if (assistant.isSpeaking) {
+                      void assistant.close();
+                    } else {
+                      void assistant.speak();
+                    }
                   }}
                   style={s.audioPlayBtn}
                 >
-                  <Ionicons name={isPlaying ? 'pause' : 'play'} size={16} color="#fff" />
+                  <Ionicons name={assistant.isSpeaking ? 'pause' : 'play'} size={16} color="#fff" />
                 </TouchableOpacity>
 
                 <View style={s.waveformContainer}>
@@ -1290,15 +1412,27 @@ function MainApp() {
                       key={idx}
                       style={[
                         s.waveformBar,
-                        { height: h, backgroundColor: isPlaying && idx < 5 ? '#6366f1' : '#a5b4fc' },
+                        {
+                          height: h,
+                          backgroundColor: assistant.isSpeaking && idx < 5 ? '#6366f1' : '#a5b4fc',
+                          transform: [{ scaleY: assistant.isSpeaking ? 0.85 + (idx % 3) * 0.1 : 1 }],
+                        },
                       ]}
                     />
                   ))}
                 </View>
 
-                <View style={s.speedBtn}>
-                  <Text style={s.speedBtnText}>{playbackSpeed}</Text>
-                </View>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    const speeds = [1, 1.25, 0.75] as const;
+                    const next = speeds[(speeds.indexOf(assistant.speed) + 1) % speeds.length];
+                    assistant.setSpeed(next);
+                  }}
+                  style={s.speedBtn}
+                >
+                  <Text style={s.speedBtnText}>{assistant.speed}x</Text>
+                </TouchableOpacity>
               </View>
             </View>
           </View>
@@ -1306,26 +1440,33 @@ function MainApp() {
           <TouchableOpacity
             activeOpacity={0.85}
             onPress={() => {
+              void assistant.close();
               setFloatingVisible(false);
-              showToast('Assistant dismissed');
             }}
-            style={s.floatingBubbleBtn}
+            style={[s.floatingBubbleBtn, s.floatingBubbleClose]}
+            accessibilityLabel={language === 'FIL' ? 'Isara' : 'Close'}
           >
-            <Image source={MASCOT_IMAGE} style={s.floatingBubbleImage} />
-            <View style={s.mascotCheckSmall}>
-              <Ionicons name="checkmark" size={8} color="#fff" />
-            </View>
+            <Ionicons name="close" size={28} color="#fff" />
           </TouchableOpacity>
         </View>
       </Modal>
 
       {/* Floating mascot badge */}
-      <View pointerEvents="none" style={[s.mascot, { bottom: navBottom + NAV_HEIGHT + 12 }]}>
-        <Image source={MASCOT_IMAGE} style={s.mascotImage} />
-        <View style={s.mascotCheck}>
-          <Ionicons name="checkmark" size={9} color="#fff" />
-        </View>
-      </View>
+      {!floatingVisible && (
+        <Animated.View
+          {...bubblePanResponder.panHandlers}
+          style={[
+            s.mascot,
+            { bottom: navBottom + NAV_HEIGHT + 12 },
+            { transform: bubblePosition.getTranslateTransform() },
+          ]}
+        >
+          <Image source={MASCOT_IMAGE} style={s.mascotImage} />
+          <View style={s.mascotCheck}>
+            <Ionicons name="checkmark" size={9} color="#fff" />
+          </View>
+        </Animated.View>
+      )}
 
       {/* Bottom nav */}
       <View style={[s.nav, { bottom: navBottom }]}>
@@ -1389,6 +1530,8 @@ const s = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff',
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: '#e2e8f0',
   },
+  onlinePill: { backgroundColor: '#dcfce7', borderColor: '#86efac' },
+  offlinePill: { backgroundColor: '#f1f5f9', borderColor: '#cbd5e1' },
   pillText: { fontSize: 12, fontWeight: '600', color: '#334155', marginLeft: 4 },
   lang: { fontSize: 12, fontWeight: '700', color: '#1e293b' },
   langSep: { fontSize: 12, color: '#94a3b8', marginHorizontal: 4 },
@@ -1655,12 +1798,10 @@ const s = StyleSheet.create({
   floatingHeaderRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16,
   },
+  floatingHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   floatingTitle: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
-  closeIconBtn: {
-    width: 36, height: 36, borderRadius: 18, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: '#e2e8f0',
-  },
   floatingActionRow: {
+    flexGrow: 1, width: '100%', justifyContent: 'center',
     gap: 12, paddingVertical: 4, marginBottom: 16,
   },
   floatingActionItem: {
@@ -1673,10 +1814,12 @@ const s = StyleSheet.create({
   floatingInfoCard: {
     backgroundColor: '#f1f5f9', borderRadius: 20, padding: 16, borderWidth: 1, borderColor: '#e2e8f0',
   },
+  voiceFallbackNote: { fontSize: 12, color: '#64748b', marginBottom: 10 },
   floatingBubbleBtn: {
     position: 'absolute', bottom: 44, right: 28, width: 52, height: 52, borderRadius: 26,
     backgroundColor: '#ea580c', alignItems: 'center', justifyContent: 'center', elevation: 10,
     borderWidth: 2, borderColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 6, overflow: 'hidden',
   },
+  floatingBubbleClose: { backgroundColor: '#ea580c' },
   floatingBubbleImage: { width: '100%', height: '100%', resizeMode: 'cover' },
 });
