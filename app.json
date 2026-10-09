@@ -21,6 +21,9 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      ["llama.rn", { "enableOpenCLAndHexagon": false }]
+    ]
   }
 }

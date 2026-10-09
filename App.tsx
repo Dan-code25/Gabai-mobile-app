@@ -15,6 +15,7 @@ import {
 import type { ImagePickerAsset } from "expo-image-picker";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { LocalAiPanel } from "./src/components/LocalAiPanel";
 
 import {
   isDocumentOcrAvailable,
@@ -38,12 +39,13 @@ export default function App() {
   const [showOriginal, setShowOriginal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"picker" | "ocr" | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
   const inFlight = useRef(false);
   const available = isDocumentOcrAvailable();
-  const disabled = busy !== null || !available;
+  const disabled = busy !== null || aiBusy || !available;
 
   async function pickScreenshot() {
-    if (inFlight.current || !available) return;
+    if (inFlight.current || aiBusy || !available) return;
     inFlight.current = true;
     setBusy("picker");
     setError(null);
@@ -76,7 +78,7 @@ export default function App() {
   }
 
   async function extractText() {
-    if (!image || inFlight.current || !available) return;
+    if (!image || inFlight.current || aiBusy || !available) return;
     inFlight.current = true;
     setBusy("ocr");
     setError(null);
@@ -102,7 +104,7 @@ export default function App() {
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 24, gap: 16 }}>
           <Text accessibilityRole="header" className="text-3xl font-bold text-slate-900">
-            GabayAI offline OCR
+            GabayAI
           </Text>
           <Text className="text-base leading-6 text-slate-700">
             Choose a screenshot, then crop to the document text. Leave out the
@@ -227,10 +229,7 @@ export default function App() {
               </>
             )}
           </View>
-          <Text className="text-base leading-6 text-slate-700">
-            Offline check: use the release test build, turn on airplane mode,
-            switch Wi-Fi off, and repeat with a local screenshot.
-          </Text>
+          <LocalAiPanel reviewedText={text} disabled={busy !== null} onBusyChange={setAiBusy} />
         </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>

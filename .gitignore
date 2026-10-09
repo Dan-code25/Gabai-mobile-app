@@ -39,3 +39,9 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Local model weights and generated native-module outputs
+*.gguf
+/modules/*/android/build/
+/modules/*/android/.gradle/
+/modules/*/android/.cxx/
