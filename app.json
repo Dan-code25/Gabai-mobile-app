@@ -24,6 +24,11 @@
     },
     "plugins": [
       "expo-status-bar"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "3777a6df-f96c-4bf0-8667-0e5a811f8a34"
+      }
+    }
   }
 }

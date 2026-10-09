@@ -9,24 +9,28 @@ import {
   Switch,
   Modal,
   Image,
+  Alert,
+  ActivityIndicator,
+  FlatList,
+  RefreshControl,
+  TextInput,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Clipboard from 'expo-clipboard';
+import * as Speech from 'expo-speech';
+import { HistoryRow, initDb } from './src/db/historyDb';
+import { useHistory } from './src/hooks/useHistory';
 
 type TabType = 'home' | 'explain' | 'history' | 'settings' | 'profile';
 type ExplainSubTab = 'explain' | 'summary' | 'photo';
 type LanguageType = 'EN' | 'FIL';
-
-interface HistoryItem {
-  id: string;
-  title: string;
-  subtitle: string;
-  time: string;
-  iconName: string;
-  iconBg: string;
-}
+type HistoryListItem =
+  | { kind: 'header'; key: string; label: string }
+  | { kind: 'history'; key: string; row: HistoryRow };
 
 const PAD = 20;
 const GAP = 12;
@@ -34,39 +38,13 @@ const NAV_HEIGHT = 64;
 const NAV_MARGIN = 12;
 
 const MASCOT_IMAGE = require('./assets/GabAI Logo.png');
+const HISTORY_SETTING_KEY = 'gabai.history.enabled';
 
 const TABS: { key: TabType; label: Record<LanguageType, string>; on: any; off: any }[] = [
   { key: 'home', label: { EN: 'Home', FIL: 'Tahanan' }, on: 'home', off: 'home-outline' },
   { key: 'explain', label: { EN: 'Explain', FIL: 'Ipaliwanag' }, on: 'sparkles', off: 'sparkles-outline' },
   { key: 'history', label: { EN: 'History', FIL: 'Kasaysayan' }, on: 'time', off: 'time-outline' },
   { key: 'settings', label: { EN: 'Settings', FIL: 'Gabay' }, on: 'settings', off: 'settings-outline' },
-];
-
-const INITIAL_HISTORY: HistoryItem[] = [
-  {
-    id: '1',
-    title: 'Barangay Notice',
-    subtitle: 'Free checkup on Saturd...',
-    time: 'Today, 9:42 AM',
-    iconName: 'format-list-bulleted',
-    iconBg: '#3b82f6',
-  },
-  {
-    id: '2',
-    title: 'Bank Warning',
-    subtitle: 'Do not give your passwo...',
-    time: 'Yesterday, 3:18 PM',
-    iconName: 'shield-outline',
-    iconBg: '#c2410c',
-  },
-  {
-    id: '3',
-    title: 'Medication Reminder',
-    subtitle: 'Take after meals...',
-    time: 'Mon, 10:05 AM',
-    iconName: 'volume-high',
-    iconBg: '#be185d',
-  },
 ];
 
 const greeting = (lang: LanguageType) => {
@@ -80,13 +58,26 @@ const greeting = (lang: LanguageType) => {
 function MainApp() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  const [databaseReady, setDatabaseReady] = useState(false);
+  const [databaseError, setDatabaseError] = useState<string | null>(null);
   const [active, setActive] = useState(false);
   const [tab, setTab] = useState<TabType>('settings');
   const [explainSubTab, setExplainSubTab] = useState<ExplainSubTab>('explain');
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState('1x');
-  const [historyItems, setHistoryItems] = useState<HistoryItem[]>(INITIAL_HISTORY);
   const [language, setLanguage] = useState<LanguageType>('EN');
+  const [historySearch, setHistorySearch] = useState('');
+  const [selectedHistory, setSelectedHistory] = useState<HistoryRow | null>(null);
+  const {
+    items: historyItems,
+    loading: historyLoading,
+    error: historyError,
+    refresh: refreshHistory,
+    loadMore: loadMoreHistory,
+    search: searchHistory,
+    remove: removeHistory,
+    clearAll: clearHistoryItems,
+  } = useHistory();
 
   // Settings states
   const [highContrast, setHighContrast] = useState(false);
@@ -101,7 +92,42 @@ function MainApp() {
   const [toast, setToast] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  useEffect(() => {
+    let mounted = true;
+
+    initDb()
+      .then(() => {
+        if (mounted) setDatabaseReady(true);
+      })
+      .catch((error: unknown) => {
+        console.error('Failed to initialize GabAI history database', error);
+        if (mounted) {
+          setDatabaseError(
+            language === 'FIL'
+              ? 'Hindi mabuksan ang kasaysayan sa device.'
+              : 'History could not be opened on this device.',
+          );
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    AsyncStorage.getItem(HISTORY_SETTING_KEY)
+      .then((value) => {
+        if (value !== null) setHistoryToggle(value === 'true');
+      })
+      .catch((error: unknown) => console.error('Failed to load history setting', error));
+  }, []);
+
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+
+  useEffect(() => {
+    if (tab === 'history' && databaseReady) void refreshHistory();
+  }, [databaseReady, refreshHistory, tab]);
 
   const showToast = (msg: string) => {
     if (timer.current) clearTimeout(timer.current);
@@ -125,9 +151,77 @@ function MainApp() {
     showToast(nextLang === 'FIL' ? 'Wikang Filipino ang ginagamit' : 'Language switched to English');
   };
 
+  const setHistorySaving = (enabled: boolean) => {
+    setHistoryToggle(enabled);
+    AsyncStorage.setItem(HISTORY_SETTING_KEY, String(enabled))
+      .catch((error: unknown) => console.error('Failed to save history setting', error));
+    showToast(
+      enabled
+        ? (language === 'FIL' ? 'Naka-on ang pag-save ng history' : 'History saving enabled')
+        : (language === 'FIL' ? 'Naka-off ang pag-save ng history' : 'History saving disabled'),
+    );
+  };
+
   const compact = width < 380;
   const cardWidth = (width - PAD * 2 - GAP) / 2;
   const navBottom = insets.bottom + NAV_MARGIN;
+
+  const getHistoryGroupLabel = (createdAt: number) => {
+    const date = new Date(createdAt);
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+
+    const isSameDate = (left: Date, right: Date) =>
+      left.getFullYear() === right.getFullYear()
+      && left.getMonth() === right.getMonth()
+      && left.getDate() === right.getDate();
+
+    if (isSameDate(date, today)) return language === 'FIL' ? 'Ngayon' : 'Today';
+    if (isSameDate(date, yesterday)) return language === 'FIL' ? 'Kahapon' : 'Yesterday';
+    return date.toLocaleDateString(language === 'FIL' ? 'fil-PH' : 'en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+  };
+
+  const historyTypeLabel = (type: HistoryRow['type']) => {
+    if (type === 'read') return language === 'FIL' ? 'Basahin' : 'Read';
+    if (type === 'explain') return language === 'FIL' ? 'Ipaliwanag' : 'Explain';
+    return language === 'FIL' ? 'Buod' : 'Summary';
+  };
+
+  const historyTypeIcon = (type: HistoryRow['type'], size = 24, color = '#fff') => {
+    if (type === 'summarize') {
+      return <MaterialCommunityIcons name="format-list-bulleted" size={size} color={color} />;
+    }
+    if (type === 'explain') {
+      return <Ionicons name="sparkles" size={size} color={color} />;
+    }
+    return <Ionicons name="volume-high" size={size} color={color} />;
+  };
+
+  const historyListItems: HistoryListItem[] = [];
+  let previousGroup = '';
+  historyItems.forEach((row) => {
+    const group = getHistoryGroupLabel(row.created_at);
+    if (group !== previousGroup) {
+      historyListItems.push({ kind: 'header', key: `header-${group}`, label: group });
+      previousGroup = group;
+    }
+    historyListItems.push({ kind: 'history', key: `history-${row.id}`, row });
+  });
+
+  if (!databaseReady) {
+    return (
+      <View style={[s.root, { paddingTop: insets.top, alignItems: 'center', justifyContent: 'center', padding: PAD }]}>
+        <Text style={s.state}>
+          {databaseError ?? (language === 'FIL' ? 'Inihahanda ang kasaysayan...' : 'Preparing history...')}
+        </Text>
+      </View>
+    );
+  }
 
   const actions = [
     { label: language === 'FIL' ? 'Ipaliwanag' : 'Explain', bg: '#eef2ff', border: '#e0e7ff', icon: '#4f46e5', node: <Ionicons name="sparkles" size={20} color="#fff" /> },
@@ -501,84 +595,277 @@ function MainApp() {
         </ScrollView>
       )}
 
-      {tab === 'history' && (
+      {tab === 'history' && selectedHistory && (
         <ScrollView
           style={{ flex: 1 }}
           showsVerticalScrollIndicator={false}
-          overScrollMode="never"
           contentContainerStyle={{
             paddingHorizontal: PAD,
             paddingTop: 8,
             paddingBottom: navBottom + NAV_HEIGHT + 24,
           }}
         >
-          <View style={s.historyHeaderRow}>
-            <View>
-              <Text style={s.cardLabel}>{language === 'FIL' ? 'SA DEVICE LAMANG' : 'ON DEVICE ONLY'}</Text>
-              <Text style={s.explainTitle}>{language === 'FIL' ? 'Kasaysayan' : 'History'}</Text>
-            </View>
+          <View style={s.historyDetailHeader}>
             <TouchableOpacity
-              activeOpacity={0.7}
+              activeOpacity={0.8}
               onPress={() => {
-                setHistoryItems([]);
-                showToast(language === 'FIL' ? 'Na-clear ang lahat ng kasaysayan.' : 'All history cleared.');
+                Speech.stop();
+                setSelectedHistory(null);
               }}
+              style={s.backBtn}
+              accessibilityLabel={language === 'FIL' ? 'Bumalik sa history' : 'Back to history'}
             >
-              <Text style={s.clearAllText}>{language === 'FIL' ? 'I-clear lahat' : 'Clear all'}</Text>
+              <Ionicons name="arrow-back" size={22} color="#0f172a" />
             </TouchableOpacity>
+            <Text style={s.historyDetailTitle}>{language === 'FIL' ? 'Detalye' : 'History detail'}</Text>
+            <View style={s.detailHeaderSpacer} />
           </View>
 
-          <View style={s.deviceOnlyPill}>
-            <Ionicons name="lock-closed-outline" size={14} color="#0f172a" style={{ marginRight: 6 }} />
-            <Text style={s.deviceOnlyText}>
-              {language === 'FIL' ? 'Nakatago lamang sa device na ito' : 'Stored only on this device'}
-            </Text>
-          </View>
-
-          {historyItems.length === 0 ? (
-            <View style={s.emptyHistoryContainer}>
-              <Text style={s.emptyHistoryText}>
-                {language === 'FIL' ? 'Walang nakaimbak na kasaysayan.' : 'No history items available.'}
+          <View style={s.historyDetailType}>
+            <View style={[s.historyDetailIcon, {
+              backgroundColor: selectedHistory.type === 'summarize'
+                ? '#be185d'
+                : selectedHistory.type === 'explain' ? '#3b82f6' : '#c2410c',
+            }]}>
+              {historyTypeIcon(selectedHistory.type)}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.historyDetailTypeLabel}>{historyTypeLabel(selectedHistory.type)}</Text>
+              <Text style={s.historyDetailDate}>
+                {new Date(selectedHistory.created_at).toLocaleString(language === 'FIL' ? 'fil-PH' : 'en-US', {
+                  dateStyle: 'long',
+                  timeStyle: 'short',
+                })}
               </Text>
             </View>
-          ) : (
-            historyItems.map((item) => (
-              <TouchableOpacity
-                key={item.id}
-                activeOpacity={0.85}
-                onPress={() => showToast(`Opening "${item.title}"`)}
-                style={s.historyCard}
-              >
-                <View style={[s.historyIconBox, { backgroundColor: item.iconBg }]}>
-                  {item.iconName === 'format-list-bulleted' ? (
-                    <MaterialCommunityIcons name="format-list-bulleted" size={18} color="#fff" />
-                  ) : item.iconName === 'shield-outline' ? (
-                    <Ionicons name="shield-outline" size={18} color="#fff" />
-                  ) : (
-                    <Ionicons name="volume-high" size={18} color="#fff" />
-                  )}
-                </View>
+          </View>
 
-                <View style={{ flex: 1, marginRight: 12 }}>
-                  <Text style={s.historyTime}>{item.time}</Text>
-                  <Text style={s.historyItemTitle} numberOfLines={1}>{item.title}</Text>
-                  <Text style={s.historyItemSubtitle} numberOfLines={1}>{item.subtitle}</Text>
-                </View>
+          <View style={s.historyDetailSection}>
+            <Text style={s.historyDetailSectionLabel}>{language === 'FIL' ? 'Orihinal na teksto' : 'Original text'}</Text>
+            <Text style={s.historyDetailBody}>{selectedHistory.source_text}</Text>
+          </View>
 
+          <View style={s.historyDetailSection}>
+            <Text style={s.historyDetailSectionLabel}>{language === 'FIL' ? 'Resulta' : 'Result'}</Text>
+            <Text style={s.historyDetailBody}>{selectedHistory.result_text}</Text>
+          </View>
+
+          <View style={s.historyDetailActions}>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => {
+                Speech.stop();
+                Speech.speak(selectedHistory.result_text, {
+                  language: selectedHistory.language === 'fil' ? 'fil-PH' : 'en-US',
+                });
+              }}
+              style={[s.historyDetailAction, { backgroundColor: '#ea580c' }]}
+              accessibilityLabel={language === 'FIL' ? 'Pakinggan ang resulta' : 'Listen to result'}
+            >
+              <Ionicons name="volume-high" size={20} color="#fff" />
+              <Text style={s.historyDetailActionText}>{language === 'FIL' ? 'Pakinggan' : 'Listen'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => {
+                void Clipboard.setStringAsync(`${selectedHistory.source_text}\n\n${selectedHistory.result_text}`)
+                  .then(() => showToast(language === 'FIL' ? 'Nakopya na.' : 'Copied.'));
+              }}
+              style={[s.historyDetailAction, { backgroundColor: '#2563eb' }]}
+              accessibilityLabel={language === 'FIL' ? 'Kopyahin ang history' : 'Copy history'}
+            >
+              <Feather name="copy" size={20} color="#fff" />
+              <Text style={s.historyDetailActionText}>{language === 'FIL' ? 'Kopyahin' : 'Copy'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => {
+                Alert.alert(
+                  language === 'FIL' ? 'Burahin ang history?' : 'Delete this history?',
+                  language === 'FIL' ? 'Hindi na maibabalik ang record na ito.' : 'This record cannot be restored.',
+                  [
+                    { text: language === 'FIL' ? 'Kanselahin' : 'Cancel', style: 'cancel' },
+                    {
+                      text: language === 'FIL' ? 'Burahin' : 'Delete',
+                      style: 'destructive',
+                      onPress: () => {
+                        Speech.stop();
+                        void removeHistory(selectedHistory.id).then(() => {
+                          setSelectedHistory(null);
+                          showToast(language === 'FIL' ? 'Tinanggal ang history.' : 'History deleted.');
+                        });
+                      },
+                    },
+                  ],
+                );
+              }}
+              style={[s.historyDetailAction, { backgroundColor: '#be185d' }]}
+              accessibilityLabel={language === 'FIL' ? 'Burahin ang history' : 'Delete history'}
+            >
+              <Feather name="trash-2" size={20} color="#fff" />
+              <Text style={s.historyDetailActionText}>{language === 'FIL' ? 'Burahin' : 'Delete'}</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      )}
+      {tab === 'history' && !selectedHistory && (
+        <FlatList<HistoryListItem>
+          style={{ flex: 1 }}
+          data={historyListItems}
+          keyExtractor={(item) => item.key}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{
+            paddingHorizontal: PAD,
+            paddingTop: 8,
+            paddingBottom: navBottom + NAV_HEIGHT + 24,
+            flexGrow: historyListItems.length === 0 ? 1 : undefined,
+          }}
+          refreshControl={
+            <RefreshControl
+              refreshing={historyLoading && historyItems.length > 0}
+              onRefresh={() => void refreshHistory()}
+              tintColor="#6366f1"
+              colors={['#6366f1']}
+            />
+          }
+          onEndReached={() => void loadMoreHistory()}
+          onEndReachedThreshold={0.4}
+          ListHeaderComponent={(
+            <View>
+              <View style={s.historyHeaderRow}>
+                <View>
+                  <Text style={s.cardLabel}>{language === 'FIL' ? 'SA DEVICE LAMANG' : 'ON DEVICE ONLY'}</Text>
+                  <Text style={s.explainTitle}>{language === 'FIL' ? 'Kasaysayan' : 'History'}</Text>
+                </View>
                 <TouchableOpacity
                   activeOpacity={0.7}
                   onPress={() => {
-                    setHistoryItems((prev) => prev.filter((i) => i.id !== item.id));
-                    showToast(`Deleted "${item.title}"`);
+                    if (historyItems.length === 0) return;
+                    Alert.alert(
+                      language === 'FIL' ? 'Burahin lahat?' : 'Clear all history?',
+                      language === 'FIL' ? 'Hindi na maibabalik ang mga ito.' : 'This cannot be undone.',
+                      [
+                        { text: language === 'FIL' ? 'Kanselahin' : 'Cancel', style: 'cancel' },
+                        {
+                          text: language === 'FIL' ? 'Burahin lahat' : 'Clear all',
+                          style: 'destructive',
+                          onPress: () => {
+                            void clearHistoryItems().then(() => {
+                              showToast(language === 'FIL' ? 'Na-clear ang lahat ng kasaysayan.' : 'All history cleared.');
+                            });
+                          },
+                        },
+                      ],
+                    );
+                  }}
+                  style={s.clearAllBtn}
+                >
+                  <Text style={s.clearAllText}>{language === 'FIL' ? 'Burahin lahat' : 'Clear all'}</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={s.historySearchBox}>
+                <Ionicons name="search" size={20} color="#64748b" />
+                <TextInput
+                  value={historySearch}
+                  onChangeText={(value) => {
+                    setHistorySearch(value);
+                    searchHistory(value);
+                  }}
+                  placeholder={language === 'FIL' ? 'Maghanap sa history' : 'Search history'}
+                  placeholderTextColor="#64748b"
+                  style={s.historySearchInput}
+                  accessibilityLabel={language === 'FIL' ? 'Maghanap sa history' : 'Search history'}
+                  returnKeyType="search"
+                />
+                {historySearch.length > 0 && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      setHistorySearch('');
+                      searchHistory('');
+                    }}
+                    style={s.searchClearBtn}
+                    accessibilityLabel={language === 'FIL' ? 'Burahin ang paghahanap' : 'Clear search'}
+                  >
+                    <Ionicons name="close-circle" size={20} color="#64748b" />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              <View style={s.deviceOnlyPill}>
+                <Ionicons name="lock-closed-outline" size={14} color="#0f172a" style={{ marginRight: 6 }} />
+                <Text style={s.deviceOnlyText}>
+                  {language === 'FIL' ? 'Nakatago lamang sa device na ito' : 'Stored only on this device'}
+                </Text>
+              </View>
+            </View>
+          )}
+          ListEmptyComponent={
+            historyLoading ? (
+              <View style={s.emptyHistoryContainer}>
+                <ActivityIndicator size="large" color="#6366f1" />
+              </View>
+            ) : (
+              <View style={s.emptyHistoryContainer}>
+                <Ionicons name="time-outline" size={40} color="#94a3b8" />
+                <Text style={s.emptyHistoryText}>
+                  {language === 'FIL' ? 'Wala pang history.' : 'No history yet.'}
+                </Text>
+              </View>
+            )
+          }
+          renderItem={({ item }) => {
+            if (item.kind === 'header') {
+              return <Text style={s.historyGroupTitle}>{item.label}</Text>;
+            }
+
+            const row = item.row;
+            const iconBackground = row.type === 'summarize' ? '#be185d' : row.type === 'explain' ? '#3b82f6' : '#c2410c';
+            return (
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => setSelectedHistory(row)}
+                style={s.historyCard}
+              >
+                <View style={[s.historyIconBox, { backgroundColor: iconBackground }]}>
+                  {historyTypeIcon(row.type, 20)}
+                </View>
+                <View style={s.historyContent}>
+                  <View style={s.historyTypeRow}>
+                    <Text style={s.historyTypeLabel}>{historyTypeLabel(row.type)}</Text>
+                    <Text style={s.historyTime}>
+                      {new Date(row.created_at).toLocaleTimeString(language === 'FIL' ? 'fil-PH' : 'en-US', {
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      })}
+                    </Text>
+                  </View>
+                  <Text style={s.historyItemTitle} numberOfLines={2}>{row.source_text}</Text>
+                  <Text style={s.historyItemSubtitle} numberOfLines={2}>{row.result_text}</Text>
+                </View>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    void removeHistory(row.id).then(() => {
+                      showToast(language === 'FIL' ? 'Tinanggal ang history.' : 'History deleted.');
+                    });
                   }}
                   style={s.trashBtn}
+                  accessibilityLabel={language === 'FIL' ? 'Burahin ang history' : 'Delete history'}
                 >
                   <Feather name="trash-2" size={16} color="#be185d" />
                 </TouchableOpacity>
               </TouchableOpacity>
-            ))
-          )}
-        </ScrollView>
+            );
+          }}
+          ListFooterComponent={
+            historyLoading && historyItems.length > 0
+              ? <ActivityIndicator size="small" color="#6366f1" style={s.historyLoadingFooter} />
+              : historyError
+                ? <Text style={s.historyErrorText}>{language === 'FIL' ? 'Hindi ma-load ang history.' : 'Could not load history.'}</Text>
+                : null
+          }
+        />
       )}
 
       {tab === 'settings' && (
@@ -700,16 +987,17 @@ function MainApp() {
                 </View>
                 <Switch
                   value={historyToggle}
-                  onValueChange={(val) => {
-                    setHistoryToggle(val);
-                    showToast(val ? 'History saving enabled' : 'History saving disabled');
-                  }}
+                  onValueChange={setHistorySaving}
                   trackColor={{ false: '#cbd5e1', true: '#0284c7' }}
                   thumbColor={'#fff'}
                 />
               </View>
-              <Text style={[s.settingCardTitle, { marginTop: 16 }]}>History</Text>
-              <Text style={s.settingCardSubtitle}>On device only</Text>
+              <Text style={[s.settingCardTitle, { marginTop: 16 }]}>
+                {language === 'FIL' ? 'I-save ang history' : 'Save history'}
+              </Text>
+              <Text style={s.settingCardSubtitle}>
+                {language === 'FIL' ? 'Sa device lamang' : 'On device only'}
+              </Text>
             </View>
 
             <TouchableOpacity
@@ -1235,12 +1523,22 @@ const s = StyleSheet.create({
   historyHeaderRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12,
   },
-  clearAllText: { fontSize: 14, fontWeight: '700', color: '#6b21a8' },
+  clearAllBtn: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 4 },
+  clearAllText: { fontSize: 16, fontWeight: '700', color: '#6b21a8' },
+  historySearchBox: {
+    minHeight: 52, flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff',
+    borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 16, paddingHorizontal: 14, marginBottom: 12,
+  },
+  historySearchInput: { flex: 1, minHeight: 48, fontSize: 16, color: '#0f172a', marginLeft: 10 },
+  searchClearBtn: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
   deviceOnlyPill: {
     flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: '#fff',
     paddingHorizontal: 14, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 16,
   },
-  deviceOnlyText: { fontSize: 12, fontWeight: '600', color: '#0f172a' },
+  deviceOnlyText: { fontSize: 16, fontWeight: '600', color: '#0f172a' },
+  historyGroupTitle: {
+    fontSize: 18, fontWeight: '800', color: '#334155', marginTop: 8, marginBottom: 8,
+  },
   historyCard: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 20, padding: 16, marginBottom: 12,
     borderWidth: 1, borderColor: '#e2e8f0', elevation: 1,
@@ -1248,15 +1546,48 @@ const s = StyleSheet.create({
   historyIconBox: {
     width: 44, height: 44, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 12,
   },
-  historyTime: { fontSize: 11, fontWeight: '600', color: '#64748b', marginBottom: 2 },
-  historyItemTitle: { fontSize: 15, fontWeight: '700', color: '#0f172a', marginBottom: 2 },
-  historyItemSubtitle: { fontSize: 13, color: '#475569' },
+  historyContent: { flex: 1, marginRight: 8 },
+  historyTypeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  historyTypeLabel: { fontSize: 16, fontWeight: '800', color: '#0f172a' },
+  historyTime: { fontSize: 16, fontWeight: '600', color: '#64748b', marginLeft: 8 },
+  historyItemTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a', marginBottom: 2 },
+  historyItemSubtitle: { fontSize: 16, color: '#475569' },
   trashBtn: {
     width: 36, height: 36, borderRadius: 12, backgroundColor: '#fff1f2', alignItems: 'center', justifyContent: 'center',
     borderWidth: 1, borderColor: '#ffe4e6',
   },
   emptyHistoryContainer: { paddingVertical: 40, alignItems: 'center' },
-  emptyHistoryText: { fontSize: 14, color: '#64748b', fontWeight: '500' },
+  emptyHistoryText: { fontSize: 16, color: '#64748b', fontWeight: '500', marginTop: 10 },
+  historyLoadingFooter: { paddingVertical: 16 },
+  historyErrorText: { fontSize: 16, color: '#b91c1c', textAlign: 'center', paddingVertical: 16 },
+  historyDetailHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20,
+  },
+  historyDetailTitle: { fontSize: 24, fontWeight: '800', color: '#0f172a' },
+  detailHeaderSpacer: { width: 48, height: 48 },
+  historyDetailType: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 20,
+    padding: 16, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 16,
+  },
+  historyDetailIcon: {
+    width: 52, height: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 14,
+  },
+  historyDetailTypeLabel: { fontSize: 20, fontWeight: '800', color: '#0f172a' },
+  historyDetailDate: { fontSize: 16, color: '#64748b', marginTop: 4 },
+  historyDetailSection: {
+    backgroundColor: '#fff', borderRadius: 20, padding: 20, borderWidth: 1,
+    borderColor: '#e2e8f0', marginBottom: 16,
+  },
+  historyDetailSectionLabel: {
+    fontSize: 16, fontWeight: '800', color: '#475569', marginBottom: 10,
+  },
+  historyDetailBody: { fontSize: 20, lineHeight: 30, color: '#0f172a' },
+  historyDetailActions: { gap: 10, marginTop: 4 },
+  historyDetailAction: {
+    minHeight: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center',
+    flexDirection: 'row', paddingHorizontal: 16,
+  },
+  historyDetailActionText: { color: '#fff', fontSize: 18, fontWeight: '800', marginLeft: 8 },
 
   settingsHeaderRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16,
