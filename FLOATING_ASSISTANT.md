@@ -31,8 +31,9 @@ deleted after processing. No screenshot, OCR text, or chat is sent to a cloud AP
 
 - `modules/floating-assistant/`: native Kotlin foreground service, draggable
   mascot, chat window, consent host, MediaProjection, crop view, module events.
-- `src/floating-assistant/`: root-mounted bridge, assistant toggle, OCR/model
-  coordinator, streaming messages, and conversation lifetime.
+- `src/floating-assistant/`: root-mounted bridge and assistant toggle. The bridge
+  now uses `src/chat/conversation.ts` for its separate conversation and
+  `src/local-ai/assistantService.ts` for the model/OCR queue shared with Chat.
 - `src/local-ai/conversation.ts`: screenshot-text fitting and contextual prompt
   building. Uses the model's tokenizer to reserve 512 output tokens inside the
   existing 2048-token context. Retains the screenshot in every prompt, drops old
@@ -44,7 +45,7 @@ deleted after processing. No screenshot, OCR text, or chat is sent to a cloud AP
 Provided logo, waving illustration, and Nunito fonts are bundled locally for
 both Home and the overlay. No extra dependencies were added for this feature.
 The original OCR/Qwen prototype screen and original OCR module are preserved.
-Home's separate screenshot/chat cards and future tabs remain placeholders.
+Home's screenshot/chat cards now open Chat; History/Settings remain placeholders.
 
 ## Checks and demo limits
 

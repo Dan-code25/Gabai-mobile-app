@@ -1,3 +1,4 @@
+import { useLanguage } from "../../i18n/useLanguage";
 import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 
 import { homeTheme } from "../../theme/home";
@@ -8,21 +9,22 @@ export type NoticeContent = { title: string; message: string };
 type FeatureNoticeProps = { content: NoticeContent | null; onClose: () => void };
 
 export function FeatureNotice({ content, onClose }: FeatureNoticeProps) {
+  const { t } = useLanguage();
   return (
     <Modal visible={content !== null} transparent animationType="none" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessible={false} />
         <View style={styles.dialog} accessibilityViewIsModal>
           <ScrollView contentContainerStyle={{ gap: 16 }}>
-            <AppText weight="extraBold" accessibilityRole="header" style={styles.title}>{content?.title}</AppText>
-            <AppText style={styles.message}>{content?.message}</AppText>
+            <AppText weight="extraBold" accessibilityRole="header" style={styles.title}>{t(content?.title ?? "")}</AppText>
+            <AppText style={styles.message}>{t(content?.message ?? "")}</AppText>
           </ScrollView>
           <Pressable
-            accessibilityRole="button" accessibilityLabel="Got it, close message"
+            accessibilityRole="button" accessibilityLabel={t("Got it, close message")}
             onPress={onClose}
             style={({ pressed }) => [styles.close, { opacity: pressed ? 0.75 : 1 }]}
           >
-            <AppText weight="extraBold" style={styles.closeLabel}>Got it</AppText>
+            <AppText weight="extraBold" style={styles.closeLabel}>{t("Got it")}</AppText>
           </Pressable>
         </View>
       </View>

@@ -1,3 +1,4 @@
+import { useLanguage } from "../../i18n/useLanguage";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useState } from "react";
@@ -8,13 +9,14 @@ import { homeTheme } from "../../theme/home";
 type PowerButtonProps = { size: number; onPress: () => void; enabled?: boolean; busy?: boolean };
 
 export function PowerButton({ size, onPress, enabled, busy }: PowerButtonProps) {
+  const { t } = useLanguage();
   const [pressed, setPressed] = useState(false);
 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={enabled ? "Stop GabAI floating assistant" : "Start GabAI floating assistant"}
-      accessibilityHint="Controls the Shiba assistant above other Android apps."
+      accessibilityLabel={t(enabled ? "Stop GabAI floating assistant" : "Start GabAI floating assistant")}
+      accessibilityHint={t("Controls the Shiba assistant above other Android apps.")}
       accessibilityState={{ busy, disabled: busy }}
       disabled={busy}
       onPress={onPress}

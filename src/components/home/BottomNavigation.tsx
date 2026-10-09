@@ -1,3 +1,4 @@
+import { useLanguage } from "../../i18n/useLanguage";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
@@ -14,29 +15,30 @@ const items = [
   { label: "Settings", icon: "settings-outline" },
 ] as const;
 
-type BottomNavigationProps = { onSelect: (tab: HomeTab) => void; largeText?: boolean };
+type BottomNavigationProps = { onSelect: (tab: HomeTab) => void; largeText?: boolean; activeTab?: HomeTab };
 
-export function BottomNavigation({ onSelect, largeText }: BottomNavigationProps) {
+export function BottomNavigation({ onSelect, largeText, activeTab = "Home" }: BottomNavigationProps) {
+  const { t } = useLanguage();
   const [pressedTab, setPressedTab] = useState<HomeTab | null>(null);
 
   return (
     <View style={[styles.bar, largeText && styles.wrappedBar]}>
       {items.map(({ label, icon }) => {
-        const selected = label === "Home";
+        const selected = label === activeTab;
         return (
           <Pressable
             key={label}
             accessibilityRole="button"
-            accessibilityLabel={label}
+            accessibilityLabel={t(label)}
             accessibilityState={{ selected }}
-            accessibilityHint={selected ? "Return to the Home Screen." : `${label} is coming soon.`}
+            accessibilityHint={t(label)}
             onPress={() => onSelect(label)}
             onPressIn={() => setPressedTab(label)}
             onPressOut={() => setPressedTab(null)}
             style={[styles.item, largeText && styles.wrappedItem, selected && styles.selected, { opacity: pressedTab === label ? 0.65 : 1 }]}
           >
             <Ionicons name={icon} size={28} color={selected ? homeTheme.colors.purple : homeTheme.colors.muted} accessible={false} />
-            <AppText weight="bold" style={[styles.label, { color: selected ? homeTheme.colors.purple : homeTheme.colors.muted }]}>{label}</AppText>
+            <AppText weight="bold" style={[styles.label, { color: selected ? homeTheme.colors.purple : homeTheme.colors.muted }]}>{t(label)}</AppText>
           </Pressable>
         );
       })}

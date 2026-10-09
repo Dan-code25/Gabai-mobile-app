@@ -43,6 +43,7 @@ class FloatingAssistantService : Service() {
   private lateinit var input: EditText
   private lateinit var send: Button
   private lateinit var screenshot: Button
+  private val localized = java.util.WeakHashMap<View, () -> Unit>()
   private var cropWindow: View? = null
   private var capturedBitmap: Bitmap? = null
   private var projection: MediaProjection? = null
@@ -76,7 +77,7 @@ class FloatingAssistantService : Service() {
         scaleType = ImageView.ScaleType.FIT_CENTER
         setPadding(dp(4), dp(4), dp(4), dp(4))
         background = rounded(lavender, 36, purple)
-        contentDescription = "Open GabAI floating assistant. Drag to move."
+        bindDescription(this, "Open GabAI floating assistant. Drag to move.")
         elevation = dp(6).toFloat()
       }
       bubbleParams = params(dp(72), dp(72), false).apply { x = screenSize().first - dp(84); y = screenSize().second / 4 }
@@ -95,13 +96,13 @@ class FloatingAssistantService : Service() {
 
   private fun foreground(capturing: Boolean) {
     val manager = getSystemService(NotificationManager::class.java)
-    manager.createNotificationChannel(NotificationChannel("gabai-assistant", "GabAI assistant", NotificationManager.IMPORTANCE_LOW))
+    manager.createNotificationChannel(NotificationChannel("gabai-assistant", FloatingStrings.t("GabAI assistant"), NotificationManager.IMPORTANCE_LOW))
     val stop = PendingIntent.getService(this, 1, Intent(this, javaClass).setAction("STOP"), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     val notification = Notification.Builder(this, "gabai-assistant")
       .setSmallIcon(android.R.drawable.ic_dialog_info)
-      .setContentTitle("GabAI assistant is on")
-      .setContentText(if (capturing) "Capturing the screen you approved" else "Tap the Shiba to get offline help")
-      .setOngoing(true).addAction(Notification.Action.Builder(null, "Stop", stop).build())
+      .setContentTitle(FloatingStrings.t("GabAI assistant is on"))
+      .setContentText(FloatingStrings.t(if (capturing) "Capturing the screen you approved" else "Tap the Shiba to get offline help"))
+      .setOngoing(true).addAction(Notification.Action.Builder(null, FloatingStrings.t("Stop"), stop).build())
     packageManager.getLaunchIntentForPackage(packageName)?.let {
       notification.setContentIntent(PendingIntent.getActivity(this, 2, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
     }
@@ -122,8 +123,8 @@ class FloatingAssistantService : Service() {
       elevation = dp(12).toFloat()
     }
     val header = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-    header.addView(ImageView(this).apply { setImageBitmap(assetImage("images/gabai-logo.png")); contentDescription = "GabAI logo" }, LinearLayout.LayoutParams(dp(28), dp(28)))
-    header.addView(text("GabAI", 20, true), LinearLayout.LayoutParams(0, dp(48), 1f).apply { leftMargin = dp(8) })
+    header.addView(ImageView(this).apply { setImageBitmap(assetImage("images/gabai-logo.png")); bindDescription(this, "GabAI logo") }, LinearLayout.LayoutParams(dp(28), dp(28)))
+    header.addView(localizedText("GabAI", 20, true), LinearLayout.LayoutParams(0, dp(48), 1f).apply { leftMargin = dp(8) })
     header.addView(button("−", "Minimize GabAI") { showBubble() }, LinearLayout.LayoutParams(dp(44), dp(44)))
     header.addView(button("×", "Close window and return to floating button") { showBubble() }, LinearLayout.LayoutParams(dp(44), dp(44)))
     chat.addView(header)
@@ -139,8 +140,8 @@ class FloatingAssistantService : Service() {
     chat.addView(progress)
     val composer = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
     input = EditText(this).apply {
-      hint = "Ask about this screenshot…"
-      contentDescription = "Follow-up question"
+      bindHint(this, "Ask about this screenshot…")
+      bindDescription(this, "Follow-up question")
       setTextColor(ink); setHintTextColor(muted); textSize = 16f
       typeface = font(false); setPadding(dp(12), dp(6), dp(12), dp(6))
       inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
@@ -158,7 +159,12 @@ class FloatingAssistantService : Service() {
 
   fun updateChat(json: String) {
     val update = JSONObject(json)
-    if (update.optString("conversationId") != conversationId) return
+    if (update.has("labels")) {
+      localized.values.toList().forEach { it() }
+      if (::chat.isInitialized) renderChat()
+      foreground(projection != null)
+    }
+    if (!update.has("messages") || update.optString("conversationId") != conversationId) return
     snapshot = update
     busy = update.optBoolean("busy")
     renderChat()
@@ -170,14 +176,15 @@ class FloatingAssistantService : Service() {
     if (messages != null) for (index in 0 until messages.length()) {
       val message = messages.getJSONObject(index)
       val user = message.optString("role") == "user"
-      val view = text(message.optString("text"), 16).apply {
+      val value = message.optString("text")
+      val view = text(if (message.optBoolean("failed")) FloatingStrings.t(value) else value, 16).apply {
         setPadding(dp(12), dp(10), dp(12), dp(10))
         background = rounded(if (user) lavender else Color.WHITE, 16)
         setTextIsSelectable(true)
       }
       messageList.addView(view, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
     }
-    statusView.text = snapshot.optString("status")
+    statusView.text = FloatingStrings.t(snapshot.optString("status"))
     spinner.visibility = if (busy || captureRunning) View.VISIBLE else View.GONE
     input.isEnabled = !busy && !captureRunning && conversationId.isNotEmpty() && snapshot.optBoolean("ready")
     send.isEnabled = input.isEnabled
@@ -205,7 +212,7 @@ class FloatingAssistantService : Service() {
     hideKeyboard()
     remove(bubble); remove(chat)
     try { startActivity(Intent(this, CapturePermissionActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-    catch (error: Exception) { captureCancelled(error.message ?: "Could not request screen capture.") }
+    catch (error: Exception) { captureCancelled("Could not request screen capture.") }
   }
 
   fun captureGranted(resultCode: Int, data: Intent) {
@@ -242,7 +249,7 @@ class FloatingAssistantService : Service() {
                   if (instance === this && captureRunning) showCrop(bitmap) else bitmap.recycle()
                 }
               }
-            } catch (error: Exception) { main.post { captureCancelled(error.message ?: "Could not read the screenshot.") } }
+            } catch (error: Exception) { main.post { captureCancelled("Could not read the screenshot.") } }
             finally { image.close() }
           }
         }, captureHandler)
@@ -250,7 +257,7 @@ class FloatingAssistantService : Service() {
           resources.displayMetrics.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
           imageReader.surface, null, main)
         main.postDelayed(timeout, 10000)
-      } catch (error: Exception) { captureCancelled(error.message ?: "Could not capture the screen.") }
+      } catch (error: Exception) { captureCancelled("Could not capture the screen.") }
     }, 450)
   }
 
@@ -277,9 +284,10 @@ class FloatingAssistantService : Service() {
   private fun showCrop(bitmap: Bitmap) {
     capturedBitmap = bitmap
     val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; background = rounded(cream, 0); setPadding(dp(12), dp(8), dp(12), dp(12)) }
-    root.addView(text("Select the area to explain", 20, true), LinearLayout.LayoutParams(-1, dp(40)))
-    root.addView(text("Drag to select. Drag a corner to adjust.", 14), LinearLayout.LayoutParams(-1, dp(36)))
+    root.addView(localizedText("Select the area to explain", 20, true), LinearLayout.LayoutParams(-1, dp(40)))
+    root.addView(localizedText("Drag to select. Drag a corner to adjust.", 14), LinearLayout.LayoutParams(-1, dp(36)))
     val selection = CropSelectionView(this, bitmap)
+    bindDescription(selection, "Screenshot crop. Drag to select an area, or drag a corner to adjust.")
     root.addView(selection, LinearLayout.LayoutParams(-1, 0, 1f))
     val actions = LinearLayout(this)
     actions.addView(button("Cancel", "Cancel crop") { captureCancelled("Crop cancelled. Your previous chat is unchanged.") }, LinearLayout.LayoutParams(0, dp(52), 1f))
@@ -303,7 +311,7 @@ class FloatingAssistantService : Service() {
           }
         } catch (error: Exception) {
           file.delete()
-          main.post { captureCancelled(error.message ?: "Could not save the crop.") }
+          main.post { captureCancelled("Could not save the crop.") }
         } finally { crop.recycle() }
       }
     }
@@ -312,7 +320,7 @@ class FloatingAssistantService : Service() {
     cropWindow = root
     val size = screenSize()
     try { windows.addView(root, params(size.first, size.second, false).apply { x = 0; y = 0 }) }
-    catch (error: Exception) { captureCancelled(error.message ?: "Could not open the crop selector.") }
+    catch (error: Exception) { captureCancelled("Could not open the crop selector.") }
   }
 
   private fun showBubble() {
@@ -394,9 +402,13 @@ class FloatingAssistantService : Service() {
   private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
   private fun font(bold: Boolean) = try { Typeface.createFromAsset(assets, "fonts/Nunito-${if (bold) "Bold" else "Regular"}.ttf") } catch (_: Exception) { Typeface.DEFAULT }
   private fun text(value: String, size: Int, bold: Boolean = false) = TextView(this).apply { text = value; textSize = size.toFloat(); setTextColor(ink); typeface = font(bold); gravity = Gravity.CENTER_VERTICAL }
+  private fun bindText(view: TextView, key: String) { val target = java.lang.ref.WeakReference(view); val apply: () -> Unit = { target.get()?.let { it.text = FloatingStrings.t(key) }; Unit }; localized[view] = apply; apply() }
+  private fun bindDescription(view: View, key: String) { val target = java.lang.ref.WeakReference(view); val previous = localized[view]; val apply: () -> Unit = { previous?.invoke(); target.get()?.let { it.contentDescription = FloatingStrings.t(key) }; Unit }; localized[view] = apply; apply() }
+  private fun bindHint(view: EditText, key: String) { val target = java.lang.ref.WeakReference(view); val previous = localized[view]; val apply: () -> Unit = { previous?.invoke(); target.get()?.let { it.hint = FloatingStrings.t(key) }; Unit }; localized[view] = apply; apply() }
+  private fun localizedText(value: String, size: Int, bold: Boolean = false) = text(value, size, bold).apply { bindText(this, value) }
   private fun rounded(color: Int, radius: Int, stroke: Int? = null) = GradientDrawable().apply { setColor(color); cornerRadius = dp(radius).toFloat(); if (stroke != null) setStroke(dp(1), stroke) }
   private fun button(value: String, label: String, primary: Boolean = false, action: () -> Unit) = Button(this).apply {
-    text = value; contentDescription = label; isAllCaps = false; textSize = 15f; typeface = font(true)
+    bindText(this, value); bindDescription(this, label); isAllCaps = false; textSize = 15f; typeface = font(true)
     setTextColor(if (primary) Color.WHITE else ink); background = rounded(if (primary) purple else lavender, 16)
     minHeight = dp(44); minimumWidth = 0; minWidth = 0; setPadding(dp(8), 0, dp(8), 0)
     setOnClickListener { action() }

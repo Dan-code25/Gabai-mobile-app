@@ -41,8 +41,11 @@ It checks the saved model and requests overlay permission when needed. Its busy
 and enabled states reflect the assistant. The assistant's screenshot/crop/chat
 flow is described in `FLOATING_ASSISTANT.md`.
 
-The Home screenshot card, chat card, Filipino option, and future tabs still show
-a coming-soon notice. Home returns to the current route and scrolls to the top.
+The Home screenshot card opens Chat and starts one gallery/crop selection.
+Ask GabAI and the Chat tab open Chat without opening the gallery. Chat messages
+and screenshot context persist when switching Home/Chat. Filipino, History,
+and Settings still show coming-soon notices. Home returns to the current route
+and scrolls to the top. See `CHAT_TAB.md` for chat implementation and checks.
 
 `App.tsx`, `src/components/LocalAiPanel.tsx`, and `modules/offline-ocr/` remain
 unchanged. The assistant reuses the existing OCR module and `LocalAiSession`;

@@ -7,8 +7,15 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { homeTheme } from "../theme/home";
 import { FloatingAssistantBridge } from "../floating-assistant/FloatingAssistantBridge";
+import { ChatProvider } from "../chat/ChatProvider";
+import { useEffect } from "react";
+import { appData } from "../storage/appData";
+import { useAppData } from "../storage/useAppData";
+import { translate } from "../i18n/translations";
 
 export default function RootLayout() {
+  const data = useAppData();
+  useEffect(() => { void appData.load(); }, []);
   const [fontsLoaded, fontError] = useFonts({
     "Nunito-Regular": require("../../assets/fonts/Nunito-Regular.ttf"),
     "Nunito-SemiBold": require("../../assets/fonts/Nunito-SemiBold.ttf"),
@@ -21,10 +28,9 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <FloatingAssistantBridge />
       <StatusBar style="dark" />
-      {fontsLoaded ? (
-        <Slot />
+      {fontsLoaded && data.ready ? (
+        <ChatProvider><FloatingAssistantBridge /><Slot /></ChatProvider>
       ) : (
         <View className="flex-1 items-center justify-center gap-6 bg-gabai-cream">
           <Image
@@ -34,7 +40,7 @@ export default function RootLayout() {
           />
           <ActivityIndicator
             color={homeTheme.colors.purple}
-            accessibilityLabel="Loading GabAI"
+            accessibilityLabel={translate("Loading GabAI", data.language)}
           />
         </View>
       )}

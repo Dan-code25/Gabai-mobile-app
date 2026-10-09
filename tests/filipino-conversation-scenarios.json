@@ -1,0 +1,12 @@
+[
+  { "id": "speak-tagalog", "mode": "chat", "language": "en", "question": "Pwede ka bang mag-Tagalog?" },
+  { "id": "filipino-greeting", "mode": "chat", "language": "en", "question": "Kumusta ka?" },
+  { "id": "filipino-wifi", "mode": "chat", "language": "en", "question": "Ano ang Wi-Fi?" },
+  { "id": "filipino-bluetooth", "mode": "chat", "language": "fil", "question": "Paano ko bubuksan ang Bluetooth?" },
+  { "id": "explain-again", "mode": "chat", "language": "en", "question": "Hindi ko maintindihan, paki-explain ulit.", "history": [{ "role": "user", "text": "Ano ang Wi-Fi?" }, { "role": "assistant", "text": "Ang Wi-Fi ay nagkokonekta ng phone mo sa isang network nang walang kable." }] },
+  { "id": "meaning-salamat", "mode": "chat", "language": "en", "question": "What does 'salamat' mean?" },
+  { "id": "translate-good-morning", "mode": "chat", "language": "en", "question": "Translate 'Good morning' to Filipino." },
+  { "id": "english-control", "mode": "chat", "language": "en", "question": "What is Wi-Fi?" },
+  { "id": "screenshot-control", "mode": "explain", "language": "en", "source": "Your password will expire in 3 days." },
+  { "id": "filipino-screenshot-followup", "mode": "followup", "language": "en", "source": "Your password will expire in 3 days.", "history": [{ "role": "user", "text": "Explain this screenshot." }, { "role": "assistant", "text": "Your password expires in 3 days. You should change it before then." }], "question": "Paano ko ito papalitan?" }
+]

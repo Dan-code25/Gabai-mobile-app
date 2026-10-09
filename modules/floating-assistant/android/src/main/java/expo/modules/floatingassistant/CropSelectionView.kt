@@ -17,7 +17,7 @@ class CropSelectionView(context: Context, private val bitmap: Bitmap) : View(con
   private var scale = 1f
   private val density = resources.displayMetrics.density
 
-  init { contentDescription = "Screenshot crop. Drag to select an area, or drag a corner to adjust." }
+  init { contentDescription = FloatingStrings.t("Screenshot crop. Drag to select an area, or drag a corner to adjust.") }
 
   override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
     scale = min(w.toFloat() / bitmap.width, h.toFloat() / bitmap.height)

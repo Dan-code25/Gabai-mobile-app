@@ -1,3 +1,5 @@
+import { useLanguage } from "../i18n/useLanguage";
+import { openTab } from "../navigation/tabs";
 import { router } from "expo-router";
 import { useRef, useState } from "react";
 import { ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
@@ -12,33 +14,6 @@ import { FeatureNotice, type NoticeContent } from "../components/ui/FeatureNotic
 import { homeTheme } from "../theme/home";
 import { useFloatingAssistant } from "../floating-assistant/useFloatingAssistant";
 
-const notices = {
-  assistant: {
-    title: "Your assistant is coming soon",
-    message: "GabAI will help you while you use other apps. The assistant is not available yet.",
-  },
-  screenshot: {
-    title: "Screenshot help is coming soon",
-    message: "You'll be able to choose a screenshot and ask GabAI to explain it. This feature is not available yet.",
-  },
-  chat: {
-    title: "Ask GabAI is coming soon",
-    message: "You'll be able to ask questions and get helpful explanations. Chat is not available yet.",
-  },
-  language: {
-    title: "Filipino is coming soon",
-    message: "GabAI is currently in English. The Filipino language option will be available in a future update.",
-  },
-  history: {
-    title: "History is coming soon",
-    message: "Your past explanations will appear here when screenshot help and chat are available.",
-  },
-  settings: {
-    title: "Settings are coming soon",
-    message: "You'll be able to personalize GabAI here in a future update.",
-  },
-} satisfies Record<string, NoticeContent>;
-
 function getGreeting() {
   const hour = new Date().getHours();
   if (hour < 12) return "Good morning!";
@@ -47,6 +22,7 @@ function getGreeting() {
 }
 
 export default function HomeScreen() {
+  const { t } = useLanguage();
   const assistant = useFloatingAssistant();
   const insets = useSafeAreaInsets();
   const { width, fontScale } = useWindowDimensions();
@@ -62,7 +38,8 @@ export default function HomeScreen() {
       router.replace("/");
       return;
     }
-    setNotice(notices[tab === "Chat" ? "chat" : tab === "History" ? "history" : "settings"]);
+    if (tab === "Chat") { router.replace("/chat"); return; }
+    openTab(tab);
   }
 
   return (
@@ -80,20 +57,20 @@ export default function HomeScreen() {
           }}
         >
           <View style={[styles.content, { width: contentWidth }]}>
-            <HomeHeader greeting={getGreeting()} onLanguagePress={() => setNotice(notices.language)} stacked={width < 360 || fontScale > 1.15} />
+            <HomeHeader greeting={t(getGreeting())} stacked={width < 360 || fontScale > 1.15} />
             <AssistantCard contentWidth={contentWidth} enabled={assistant.enabled} busy={assistant.busy}
               onStartPress={() => { void assistant.toggle().catch(error => setNotice({ title: "Floating assistant", message: error instanceof Error ? error.message : String(error) })); }} />
-            <AppText weight="extraBold" accessibilityRole="header" style={styles.sectionTitle}>Main Actions</AppText>
+            <AppText weight="extraBold" accessibilityRole="header" style={styles.sectionTitle}>{t("Main Actions")}</AppText>
             <View className="gap-3">
               <ActionCard
-                title="Explain a Screenshot" description="Choose an image to understand what's on it."
+                title={t("Explain a Screenshot")} description={t("Choose an image to understand what's on it.")}
                 icon="camera" tone="purple" stacked={largeText || contentWidth < 310}
-                onPress={() => setNotice(notices.screenshot)}
+                onPress={() => router.replace({ pathname: "/chat", params: { screenshot: String(Date.now()) } })}
               />
               <ActionCard
-                title="Ask GabAI" description="Ask a question or get more information."
+                title={t("Ask GabAI")} description={t("Ask a question or get more information.")}
                 icon="chatbubble-ellipses" tone="coral" stacked={largeText || contentWidth < 310}
-                onPress={() => setNotice(notices.chat)}
+                onPress={() => router.replace("/chat")}
               />
             </View>
           </View>

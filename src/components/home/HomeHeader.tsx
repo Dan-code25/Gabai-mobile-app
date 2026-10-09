@@ -1,3 +1,4 @@
+import { useLanguage } from "../../i18n/useLanguage";
 import { Image, Pressable, StyleSheet, View } from "react-native";
 
 import { homeTheme } from "../../theme/home";
@@ -5,11 +6,11 @@ import { AppText } from "../ui/AppText";
 
 type HomeHeaderProps = {
   greeting: string;
-  onLanguagePress: () => void;
   stacked?: boolean;
 };
 
-export function HomeHeader({ greeting, onLanguagePress, stacked }: HomeHeaderProps) {
+export function HomeHeader({ greeting, stacked }: HomeHeaderProps) {
+  const { language, setLanguage } = useLanguage();
   return (
     <View style={[styles.header, stacked && styles.stacked]}>
       <View className="flex-1 flex-row items-center gap-3">
@@ -27,19 +28,13 @@ export function HomeHeader({ greeting, onLanguagePress, stacked }: HomeHeaderPro
         </View>
       </View>
       <View style={styles.language}>
-        <View style={styles.languageOption} accessible accessibilityLabel="English, selected">
-          <AppText weight="extraBold" style={styles.languageText}>EN</AppText>
-        </View>
-        <View style={styles.divider} />
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Filipino language"
-          accessibilityHint="Find out about the upcoming Filipino language option."
-          onPress={onLanguagePress}
-          style={({ pressed }) => [styles.languageOption, { opacity: pressed ? 0.55 : 1 }]}
-        >
-          <AppText weight="bold" style={[styles.languageText, styles.muted]}>FIL</AppText>
-        </Pressable>
+        {(["en", "fil"] as const).map((value, index) => <View key={value} style={{ flexDirection: "row", alignItems: "center" }}>
+          {index === 1 && <View style={styles.divider} />}
+          <Pressable accessibilityRole="radio" accessibilityLabel={value === "en" ? "English" : "Filipino"} accessibilityState={{ checked: language === value }}
+            onPress={() => { void setLanguage(value).catch(() => undefined); }} style={({ pressed }) => [styles.languageOption, { opacity: pressed ? 0.55 : 1 }]}>
+            <AppText weight="extraBold" style={[styles.languageText, language !== value && styles.muted]}>{value === "en" ? "EN" : "FIL"}</AppText>
+          </Pressable>
+        </View>)}
       </View>
     </View>
   );

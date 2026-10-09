@@ -1,3 +1,4 @@
+import { useLanguage } from "../../i18n/useLanguage";
 import { LinearGradient } from "expo-linear-gradient";
 import { Image, StyleSheet, View } from "react-native";
 
@@ -8,6 +9,7 @@ import { PowerButton } from "./PowerButton";
 type AssistantCardProps = { contentWidth: number; onStartPress: () => void; enabled?: boolean; busy?: boolean };
 
 export function AssistantCard({ contentWidth, onStartPress, enabled, busy }: AssistantCardProps) {
+  const { t } = useLanguage();
   const mascotWidth = Math.min(contentWidth * 0.66, 250);
   const mascotHeight = mascotWidth * (2 / 3);
   const powerSize = Math.min(Math.max(contentWidth * 0.46, 144), 164);
@@ -23,7 +25,7 @@ export function AssistantCard({ contentWidth, onStartPress, enabled, busy }: Ass
         <View pointerEvents="none" accessible={false} style={[styles.orb, styles.topOrb]} />
         <View pointerEvents="none" accessible={false} style={[styles.orb, styles.leftOrb]} />
         <View pointerEvents="none" accessible={false} style={[styles.orb, styles.bottomOrb]} />
-        <AppText weight="extraBold" style={styles.eyebrow}>ASSISTANT</AppText>
+        <AppText weight="extraBold" style={styles.eyebrow}>{t("ASSISTANT")}</AppText>
         <View style={[styles.stage, { height: powerTop + powerSize + 10 }]}>
           <View
             pointerEvents="none" accessible={false}
@@ -39,13 +41,13 @@ export function AssistantCard({ contentWidth, onStartPress, enabled, busy }: Ass
           </View>
         </View>
         <View style={styles.titleRow}>
-          <AppText weight="extraBold" style={styles.title}>{busy ? "Setting up…" : enabled ? "Tap to Stop" : "Tap to Start"}</AppText>
+          <AppText weight="extraBold" style={styles.title}>{t(busy ? "Setting up…" : enabled ? "Tap to Stop" : "Tap to Start")}</AppText>
           <View style={styles.soonBadge}>
-            <AppText weight="bold" style={styles.soonText}>{enabled ? "Assistant on" : "Offline assistant"}</AppText>
+            <AppText weight="bold" style={styles.soonText}>{t(enabled ? "Assistant on" : "Offline assistant")}</AppText>
           </View>
         </View>
         <AppText weight="semibold" style={styles.description}>
-          Get help from GabAI while using{"\n"}other apps on your phone.
+          {t("Get help from GabAI while using other apps on your phone.")}
         </AppText>
       </LinearGradient>
     </View>

@@ -1,8 +1,21 @@
 # Android build progress
 
-Last update: 2026-10-10 05:46 (Asia/Manila).
+Last update: 2026-10-10 06:14 (Asia/Manila).
 
 ## Current status
+
+**Chat tab added and running on the existing Android build.** Home Ask GabAI,
+Explain a Screenshot, and Chat navigation now open the real Chat screen. Direct
+chat, gallery/native crop, OCR explanations, thumbnails, and contextual follow-ups
+reuse a shared serialized local model service. The user confirmed Chat opens
+and answers. Phone inspection also showed a cropped screenshot and a streamed
+explanation in Chat. Lint, TypeScript, and focused shared-service/prompt checks
+passed. No new dependencies, Kotlin changes, or native build were needed for Chat.
+
+The development server is responding on port 8083. It was restarted after a
+stalled connection and again to include new routes missed by the stale watcher.
+USB forwarding is configured; the fresh bundle contains the Chat route and
+shared service. Further manual checks are listed in `CHAT_TAB.md`.
 
 **Floating assistant build succeeded and is installed on RMX2061.** Final build:
 1m 40s, 518 tasks (32 executed, 486 up-to-date). APK:
@@ -59,6 +72,9 @@ Then press `a` in that terminal to open the connected Android phone. UI edits do
 
 ## Live updates
 
+- AI reliability audit: Centralized action/state routing and per-turn Filipino intent; explicit translation remains separate and Settings is preserved. Correct Jinja assistant prefix/non-thinking mode verified on the real phone. Added model-only OCR cleanup, full-source token budgeting with smaller-crop errors, early cancellation and sensitive-response validation. No new dependencies/native modules/model downloads. Details and candid failed Filipino quality results: AI_RELIABILITY.md.
+- Reliability checks: 42 deterministic AI tests, Chat/history/overlay regressions, TypeScript and Expo lint passed. Real English check 4.835s; screenshot check 5.934s. Filipino fluency/translations remain unreliable in Qwen 0.6B despite correct task routing. Restored stopped server on 8083 and reconnected GabAI; user inference was preserved when the synthetic diagnostic found it active.
+
 - Before the 04:41 retry: The denied native directory remained inaccessible after stopping the project Gradle daemon and identified Java editor services. Set the project's Java extension to its supported LightWeight mode to prevent editor-driven Gradle builds.
 - 04:41: Stopped our old Expo web-preview server on port 8081. The previously inaccessible native directory then disappeared, consistent with a pending deletion being released when a watcher closes. This is evidence of an open-handle problem, not proof of which watcher held every earlier directory. Retrying with the preview stopped.
 - Current retry: Full output is saved in [.ui-validation/build-20261010-044151.log](.ui-validation/build-20261010-044151.log). Added Metro exclusions for generated native output/cache directories so future previews do not watch those folders. The app's resources and Java/Kotlin stages have passed again; native compilation is running.
@@ -75,3 +91,10 @@ Then press `a` in that terminal to open the connected Android phone. UI edits do
 - Model display bug: Filter complete thinking blocks, stray <think>/</think> tags, and partial streamed tags from floating chat. The original AI prototype methods are not rewritten. Focused regression checks cover the filtering.
 - Final assistant build: BUILD SUCCESSFUL in 1m 40s. Updated APK installed at 05:46 and opened through the user's existing port-8083 server. Lint, TypeScript, prompt-budget/history/cancellation tests, and thinking-tag tests passed. Screen capture itself continues to require the user's Android consent; no consent prompts were automated.
 - Phone confirmation: User retested and confirmed both reported bugs are fixed: capture targets the other app and thinking tags are hidden. Read-only Android service inspection also confirmed the assistant runs as a foreground service while GabAI is outside the foreground. Wider Android-version, rotation, and long-chat tests remain future checks.
+- Chat tab: Added reusable header, message bubble, composer, persistent root conversation provider, and selected Chat navigation. The shared model queue avoids two loaded contexts and isolates Chat and floating screenshot histories. Reused the installed Android gallery crop editor and original OCR module.
+- Chat checks: Shared-service tests passed for one model, serialized generation, separate contexts, duplicate prevention, follow-up history, screenshot reset/thumbnail, OCR failure recovery, and thinking filtering. Prompt tests, lint, and TypeScript passed.
+- Development connection: Restarted only the identified project Expo server when it stopped responding. Later restarted our server to refresh missed route/source updates. Temporary Metro cache stays on D drive. Fresh Android bundle contains ChatScreen and AssistantService. Server remains running on port 8083.
+- Chat phone result: User confirmed Chat opens and answers. Inspected the GabAI screen showing a cropped image and streamed AI explanation, with selected Chat navigation. Remaining manual checks are recorded in CHAT_TAB.md.
+- History and Settings: Added app-private JSON history/preferences, local title/message search, confirmed individual deletion, and restoring messages/OCR context in Chat without another OCR call. Continued replies retain the saved ID; active deletion resets/cancels safely.
+- Shared language: Home and Settings use one persisted English/Filipino state. Central labels update React Native screens and native floating controls through the existing JSON bridge. Future AI requests receive the selected language; original OCR and previous messages are preserved. Disabled Android cloud backup for saved data.
+- Validation: TypeScript, Expo lint, History/storage tests, Chat/service tests and floating prompt tests passed. Android build succeeded in 1m24s (518 tasks), installed on RMX2061 without clearing app data. Verified translated Settings and a saved History entry on the phone. Development server remains on port 8083. Requested user confirmation of new Filipino answers and real app-restart persistence; screenshot-history follow-ups and floating crop localization still need physical confirmation. Details: HISTORY_SETTINGS.md.

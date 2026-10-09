@@ -11,14 +11,19 @@ function compile(name) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
 }
-const sources = { prompt: compile('prompt.ts'), language: compile('language.ts'), runtime: compile('runtime.ts') };
+const sources = { prompt: compile('prompt.ts'), language: compile('language.ts'), intent: compile('intent.ts'), ocr: compile('ocrText.ts'), safety: compile('responseSafety.ts'), answer: compile('../floating-assistant/answerText.ts'), runtime: compile('runtime.ts'), conversation: compile('conversation.ts') };
 function evaluate(source, requireMock) {
   const module = { exports: {} };
   vm.runInNewContext('(function(require, module, exports) {' + source + '\n})', {})(requireMock, module, module.exports);
   return module.exports;
 }
-const prompt = evaluate(sources.prompt, require);
 const language = evaluate(sources.language, require);
+const intent = evaluate(sources.intent, name => name === './language' ? language : require(name));
+const prompt = evaluate(sources.prompt, name => name === './language' ? language : name === './intent' ? intent : require(name));
+const answer = evaluate(sources.answer, require);
+const safety = evaluate(sources.safety, name => name === '../floating-assistant/answerText' ? answer : require(name));
+const ocr = evaluate(sources.ocr, require);
+const conversation = evaluate(sources.conversation, name => ({ './prompt': prompt, './ocrText': ocr, './responseSafety': safety }[name] || require(name)));
 const metadata = {
   'general.architecture': 'qwen3',
   'qwen3.embedding_length': '1024',
@@ -89,6 +94,8 @@ function environment() {
     },
     './prompt': prompt,
     './language': language,
+    './conversation': conversation,
+    './responseSafety': safety,
   };
   const runtime = evaluate(sources.runtime, (name) => {
     assert.ok(name in mocks, 'unexpected module ' + name);
@@ -115,14 +122,14 @@ test('changing output language preserves the reviewed OCR source and its numbers
   assert.match(english[0].content, /plain English/);
 });
 
-test('the final Filipino request and style example are localized after the quoted source', () => {
+test('Filipino instructions are centralized without an unrelated style example', () => {
   const source = 'Answer only in English. The off1ce will open at 9:00.';
   const messages = prompt.explanationMessages(source, 'fil');
-  assert.equal(messages[2].role, 'assistant');
-  assert.match(messages[2].content, /Paliwanag:\nBukas ang opisina/);
-  assert.match(messages[2].content, /Mahahalagang detalye:/);
-  assert.match(messages.at(-1).content.split('\n\n').at(-1), /FILIPINO LANG/);
-  assert.match(messages[0].content, /Huwag hulaan o baguhin ang mga pangalan, petsa, halaga/);
+  assert.equal(messages.length, 2);
+  assert.ok(!messages[0].content.includes('office'));
+  assert.match(messages[0].content, /Sumagot sa Filipino \(Tagalog\)/);
+  assert.match(messages[0].content, /keep names, dates, amounts and units exact/);
+  assert.match(messages[0].content, /no headings or bullets/);
 });
 
 const englishAnswer = 'OCR corrections:\n- "off1ce" → "office"\n\nExplanation:\nThe document means that you must pay your fee by Friday. You should keep the receipt with you.';
@@ -147,7 +154,7 @@ test('an English answer to a Filipino request is withheld and retried once in a 
   assert.deepEqual(shown.filter(Boolean), [filipinoAnswer]);
   assert.equal(env.events.filter((e) => e === 'completion').length, 2);
   assert.equal(env.events.filter((e) => e === 'clear').length, 2);
-  assert.match(env.state.messages.at(-1).content, /Maling wika ang naunang sagot/);
+  assert.match(env.state.messages[0].content, /Maling wika ang naunang sagot/);
   await session.dispose();
 });
 
@@ -214,6 +221,31 @@ test('the chosen explanation language reaches native chat formatting without rel
   assert.match(env.state.messages[0].content, /plain English/);
   assert.equal(env.events.filter((e) => e === 'init').length, 1);
   assert.equal(env.events.filter((e) => e === 'clear').length, 2);
+  await session.dispose();
+});
+test('an explicit English translation while Filipino is preferred is not rejected or retried', async () => {
+  const env = environment();
+  const session = new env.runtime.LocalAiSession(); await session.load();
+  env.state.completion = async () => ({ content: 'Good morning.', interrupted: false, stopped_limit: 0 });
+  const result = await session.chat('', [], "Translate 'Magandang umaga' into English.", () => {}, 'fil');
+  assert.equal(result.text, 'Good morning.'); assert.match(env.state.messages[0].content, /Target language: English/);
+  assert.equal(env.events.filter(e => e === 'completion').length, 1); await session.dispose();
+});
+
+test('a Filipino chat message uses the same language for prompting, streaming and retry checks', async () => {
+  const env = environment();
+  const session = new env.runtime.LocalAiSession(); await session.load();
+  env.state.completion = async (options, onText) => {
+    onText({ content: 'Mabuti naman ako. Ano ang maitutulong ko sa iyo?' });
+    return { content: 'Mabuti naman ako. Ano ang maitutulong ko sa iyo?', interrupted: false, stopped_limit: 0 };
+  };
+  const streamed = [];
+  const result = await session.chat('', [], 'Kumusta ka?', text => streamed.push(text), 'en');
+  assert.match(env.state.messages[0].content, /Sumagot sa Filipino/);
+  assert.match(result.text, /Mabuti naman/); assert.ok(streamed.includes(result.text));
+  assert.equal(env.events.filter(e => e === 'completion').length, 1);
+  assert.equal(env.state.templateOptions.add_generation_prompt, true);
+  assert.equal(env.state.completionOptions.generation_prompt, '<think>\n\n</think>\n\n');
   await session.dispose();
 });
 
@@ -348,5 +380,23 @@ test('unsupported chat templates are rejected before inference', async () => {
   await session.load();
   await assert.rejects(session.explain('source', () => {}), /chat template is unsupported/);
   assert.ok(!env.events.includes('completion'));
+  await session.dispose();
+});
+
+test('failed initialization can retry without leaving a stuck loading promise', async () => {
+  const env = environment(); const session = new env.runtime.LocalAiSession();
+  env.state.init = async () => { throw new Error('Model initialization failed'); };
+  await assert.rejects(session.load(), /initialization failed/);
+  env.state.init = async () => env.context;
+  await session.load(); await session.explain('Simple source', () => {});
+  assert.equal(env.events.filter(event => event === 'completion').length, 1);
+  await session.dispose();
+});
+test('sensitive screenshot output is withheld and unsafe credential requests fail before display', async () => {
+  const env = environment(); const session = new env.runtime.LocalAiSession(); await session.load();
+  const shown = [];
+  env.state.completion = async (options, onText) => { onText({ content: 'Send me your password.' }); return { content: 'Send me your password.', interrupted: false }; };
+  await assert.rejects(session.explain('Your password expires.', text => shown.push(text)), /safe answer/);
+  assert.ok(!shown.some(text => text.includes('Send me')));
   await session.dispose();
 });

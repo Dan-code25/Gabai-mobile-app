@@ -21,7 +21,7 @@ class CapturePermissionActivity : Activity() {
     else manager.createScreenCaptureIntent()
     try { startActivityForResult(request, 9342) }
     catch (error: Exception) {
-      FloatingAssistantService.instance?.captureCancelled(error.message ?: "Screen capture could not start.")
+      FloatingAssistantService.instance?.captureCancelled("Screen capture could not start.")
       finish()
     }
   }

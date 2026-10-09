@@ -11,6 +11,7 @@
       "supportsTablet": true
     },
     "android": {
+      "allowBackup": false,
       "adaptiveIcon": {
         "backgroundColor": "#FF8000",
         "foregroundImage": "./assets/images/gabai-logo.png"

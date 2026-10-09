@@ -1,23 +1,26 @@
 import { requireOptionalNativeModule } from "expo";
 import { Platform, TurboModuleRegistry } from "react-native";
 import type { File } from "expo-file-system";
-import type { JinjaFormattedChatResult, LlamaContext } from "llama.rn";
+import type { JinjaFormattedChatResult, LlamaContext, NativeCompletionResultTimings } from "llama.rn";
 
 import {
   CONTEXT_TOKENS,
   MODEL_FILENAME,
-  OUTPUT_TOKENS,
   PROMPT_TOKEN_LIMIT,
   explanationMessages,
+  generationSettings,
+  chatTemplateOptions,
+  responseLanguage,
   type ExplanationLanguage,
 } from "./prompt";
 import { isClearlyWrongLanguage, isLikelyRequestedLanguage } from "./language";
 import { fitExplanationSource, generateFollowUp, type ChatMessage } from "./conversation";
+import { assertSafeAnswer, holdSensitiveResponse, unsafeAnswer } from "./responseSafety";
 
 type FileSystem = typeof import("expo-file-system");
 type Llama = typeof import("llama.rn");
 export type SavedModel = { uri: string; bytes: number };
-export type ExplanationResult = { text: string; stopped: boolean; limited: boolean };
+export type ExplanationResult = { text: string; stopped: boolean; limited: boolean; metrics?: NativeCompletionResultTimings };
 
 export function isLocalAiAvailable(): boolean {
   return (
@@ -163,25 +166,48 @@ export class LocalAiSession {
   }
 
   /** Additive overlay APIs reuse the same validated model and serialized session. */
-  async prepareScreenshotText(text: string) {
+  async prepareScreenshotText(text: string, language: ExplanationLanguage = "en") {
     if (this.disposed || this.unloading || !this.context) throw new Error("Load the model first.");
-    return fitExplanationSource(this.context, text);
+    return fitExplanationSource(this.context, text, language);
   }
 
-  async converse(source: string, history: ChatMessage[], question: string, onText: (text: string) => void) {
+  async converse(source: string, history: ChatMessage[], question: string, onText: (text: string) => void, language: ExplanationLanguage = "en") {
     if (this.disposed || this.unloading || !this.context) throw new Error("Load the model first.");
     if (this.generating) throw new Error("An answer is already running.");
     this.stopRequested = false;
-    const task = generateFollowUp(this.context, source, history, question, onText,
-      () => this.disposed || this.stopRequested,
-      active => { this.completionStarted = active; });
+    const task = this.followUp(this.context, source, history, question, onText, false, language);
     this.generating = task;
     try { return await task; } finally { this.generating = null; }
   }
 
+  async chat(source: string, history: ChatMessage[], question: string, onText: (text: string) => void, language: ExplanationLanguage = "en") {
+    if (this.disposed || this.unloading || !this.context) throw new Error("Load the model first.");
+    if (this.generating) throw new Error("An answer is already running.");
+    this.stopRequested = false;
+    const task = this.followUp(this.context, source, history, question, onText, true, language);
+    this.generating = task;
+    try { return await task; } finally { this.generating = null; }
+  }
+
+  private async followUp(context: LlamaContext, source: string, history: ChatMessage[], question: string, onText: (text: string) => void, general: boolean, language: ExplanationLanguage) {
+    const selected = responseLanguage(question, language);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = await generateFollowUp(context, source, history, question,
+        text => { if (!selected || !isClearlyWrongLanguage(text, selected) && isLikelyRequestedLanguage(text, selected)) onText(text); },
+        () => this.disposed || this.stopRequested,
+        active => { this.completionStarted = active; }, general, language, attempt > 0);
+      if (result.stopped || !selected || !isClearlyWrongLanguage(result.text, selected)) {
+        const text = selected && isClearlyWrongLanguage(result.text, selected) ? "" : result.text;
+        onText(text); return { ...result, text };
+      }
+      onText("");
+    }
+    throw new Error(selected === "fil" ? "Hindi nakasagot sa Filipino ang model. Subukan ang mas maikling tanong." : "The model did not answer in English. Try a shorter question.");
+  }
+
   private async complete(context: LlamaContext, text: string, language: ExplanationLanguage, retry: boolean, onText: (text: string) => void): Promise<ExplanationResult> {
     const messages = explanationMessages(text, language, retry);
-    const templateOptions = { jinja: true, enable_thinking: false, chat_template_kwargs: { enable_thinking: false } };
+    const templateOptions = chatTemplateOptions;
     const formatted = await context.getFormattedChat(messages, undefined, templateOptions);
     if (formatted.type !== "jinja") {
       throw new Error("This model's chat template is unsupported. Import a Qwen3 GGUF with its original chat template.");
@@ -200,6 +226,7 @@ export class LocalAiSession {
     if (this.stopRequested || this.disposed) return { text: "", stopped: true, limited: false };
     let streamed = "";
     let showingPartial = false;
+    const hold = holdSensitiveResponse(text);
     this.completionStarted = true;
     try {
       // Reuse the exact prompt we token-counted. Passing messages here would
@@ -212,16 +239,13 @@ export class LocalAiSession {
         thinking_forced_open: chat.thinking_forced_open,
         thinking_start_tag: chat.thinking_start_tag,
         thinking_end_tag: chat.thinking_end_tag,
-        n_predict: OUTPUT_TOKENS,
-        temperature: 0.7,
-        top_p: 0.8,
-        top_k: 20,
-        min_p: 0,
+        ...generationSettings,
         stop: ["<|im_end|>", "<|endoftext|>", ...(chat.additional_stops ?? [])],
       };
       const result = await context.completion(params, (data) => {
         streamed = data.content ?? data.accumulated_text ?? (streamed + data.token);
-        if (this.disposed || this.stopRequested) return;
+        if (this.disposed || this.stopRequested || hold) return;
+        if (unsafeAnswer(streamed, text)) { showingPartial = false; onText(""); return; }
         if (isLikelyRequestedLanguage(streamed, language)) {
           showingPartial = true;
           onText(streamed);
@@ -232,8 +256,9 @@ export class LocalAiSession {
       });
       const answer = (result.content || result.text || streamed).trim();
       const stopped = this.stopRequested || result.interrupted;
+      if (!stopped) assertSafeAnswer(answer, text);
       if (!answer && !stopped) throw new Error("The model returned no explanation. Try a clearer or shorter passage.");
-      return { text: answer, stopped, limited: Boolean(result.stopped_limit) };
+      return { text: answer, stopped, limited: Boolean(result.stopped_limit), metrics: result.timings };
     } finally {
       this.completionStarted = false;
     }
