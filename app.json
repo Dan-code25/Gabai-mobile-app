@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "GabayAI",
-    "slug": "GabayAI",
+    "name": "GabAI",
+    "slug": "GabAI",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/GabAI Logo.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true
@@ -12,15 +12,18 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
+        "foregroundImage": "./assets/GabAI Logo.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.GabayAI"
+      "package": "com.anonymous.GabAI"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./assets/GabAI Logo.png"
+    },
+    "plugins": [
+      "expo-status-bar"
+    ]
   }
 }
