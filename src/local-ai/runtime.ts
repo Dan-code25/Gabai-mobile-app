@@ -12,6 +12,7 @@ import {
   type ExplanationLanguage,
 } from "./prompt";
 import { isClearlyWrongLanguage, isLikelyRequestedLanguage } from "./language";
+import { fitExplanationSource, generateFollowUp, type ChatMessage } from "./conversation";
 
 type FileSystem = typeof import("expo-file-system");
 type Llama = typeof import("llama.rn");
@@ -159,6 +160,23 @@ export class LocalAiSession {
     throw new Error(language === "fil"
       ? "Hindi nakasagot sa Filipino ang model matapos subukang muli. Subukan ang mas maikling teksto."
       : "The model did not answer in English after retrying. Try a shorter passage.");
+  }
+
+  /** Additive overlay APIs reuse the same validated model and serialized session. */
+  async prepareScreenshotText(text: string) {
+    if (this.disposed || this.unloading || !this.context) throw new Error("Load the model first.");
+    return fitExplanationSource(this.context, text);
+  }
+
+  async converse(source: string, history: ChatMessage[], question: string, onText: (text: string) => void) {
+    if (this.disposed || this.unloading || !this.context) throw new Error("Load the model first.");
+    if (this.generating) throw new Error("An answer is already running.");
+    this.stopRequested = false;
+    const task = generateFollowUp(this.context, source, history, question, onText,
+      () => this.disposed || this.stopRequested,
+      active => { this.completionStarted = active; });
+    this.generating = task;
+    try { return await task; } finally { this.generating = null; }
   }
 
   private async complete(context: LlamaContext, text: string, language: ExplanationLanguage, retry: boolean, onText: (text: string) => void): Promise<ExplanationResult> {

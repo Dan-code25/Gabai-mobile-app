@@ -40,6 +40,10 @@ yarn-error.*
 /ios
 /android
 
+# Temporary UI validation outputs and preserved dependency cache
+/.ui-validation/
+/.ui-cache-backup/
+
 # Local model weights and generated native-module outputs
 *.gguf
 /modules/*/android/build/
