@@ -41,9 +41,9 @@ export function AssistantCard({ contentWidth, onStartPress, enabled, busy }: Ass
           </View>
         </View>
         <View style={styles.titleRow}>
-          <AppText weight="extraBold" style={styles.title}>{t(busy ? "Setting up…" : enabled ? "Tap to Stop" : "Tap to Start")}</AppText>
-          <View style={styles.soonBadge}>
-            <AppText weight="bold" style={styles.soonText}>{t(enabled ? "Assistant on" : "Offline assistant")}</AppText>
+          <AppText weight="extraBold" style={styles.title}>{t(busy ? "Setting up…" : enabled ? "Stop Assistant" : "Start Assistant")}</AppText>
+          <View style={[styles.soonBadge, enabled && { backgroundColor: homeTheme.colors.coralPale }]}>
+            <AppText weight="bold" style={[styles.soonText, enabled && { color: homeTheme.colors.ink }]}>{t(enabled ? "Assistant on" : "Assistant off")}</AppText>
           </View>
         </View>
         <AppText weight="semibold" style={styles.description}>

@@ -28,6 +28,8 @@ import kotlin.math.min
 
 class FloatingAssistantService : Service() {
   companion object { @Volatile var instance: FloatingAssistantService? = null; private const val NOTIFICATION = 9343 }
+  @Volatile var ready = false
+    private set
   private val main = Handler(Looper.getMainLooper())
   private val captureThread = HandlerThread("GabAI-capture")
   private lateinit var captureHandler: Handler
@@ -45,6 +47,10 @@ class FloatingAssistantService : Service() {
   private lateinit var screenshot: Button
   private val localized = java.util.WeakHashMap<View, () -> Unit>()
   private var cropWindow: View? = null
+  private var controlsMenu: LinearLayout? = null
+  private var edgeHandle: TextView? = null
+  private var edgeParams: WindowManager.LayoutParams? = null
+  private var hiddenOnRight = true
   private var capturedBitmap: Bitmap? = null
   private var projection: MediaProjection? = null
   private var reader: ImageReader? = null
@@ -73,19 +79,28 @@ class FloatingAssistantService : Service() {
     try {
       check(Settings.canDrawOverlays(this)) { "Overlay permission is required." }
       bubble = ImageView(this).apply {
-        setImageBitmap(assetImage("images/shiba-wave.png"))
-        scaleType = ImageView.ScaleType.FIT_CENTER
-        setPadding(dp(4), dp(4), dp(4), dp(4))
-        background = rounded(lavender, 36, purple)
-        bindDescription(this, "Open GabAI floating assistant. Drag to move.")
-        elevation = dp(6).toFloat()
+        setImageBitmap(assetImage("images/gabai-logo.png"))
+        scaleType = ImageView.ScaleType.CENTER_CROP
+        background = rounded(lavender, 15)
+        clipToOutline = true
+        bindDescription(this, "Open GabAI floating assistant. Drag to move. Long press for controls.")
+        elevation = dp(4).toFloat()
       }
-      bubbleParams = params(dp(72), dp(72), false).apply { x = screenSize().first - dp(84); y = screenSize().second / 4 }
+      bubbleParams = params(dp(60), dp(60), false).apply { x = screenSize().first - dp(72); y = screenSize().second / 4 }
+      bubble.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(view: View) {
+          if (instance === this@FloatingAssistantService && !ready) {
+            ready = true
+            FloatingEvents.emit(mapOf("type" to "enabled"))
+          }
+        }
+        override fun onViewDetachedFromWindow(view: View) {}
+      })
       buildChat()
       bubble.setOnClickListener { showChat() }
+      bubble.setOnLongClickListener { showControls(); true }
       installDrag(bubble, bubbleParams, true) { showChat() }
       showBubble()
-      FloatingEvents.emit(mapOf("type" to "enabled"))
     } catch (_: Exception) { stopSelf() }
   }
 
@@ -125,8 +140,8 @@ class FloatingAssistantService : Service() {
     val header = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
     header.addView(ImageView(this).apply { setImageBitmap(assetImage("images/gabai-logo.png")); bindDescription(this, "GabAI logo") }, LinearLayout.LayoutParams(dp(28), dp(28)))
     header.addView(localizedText("GabAI", 20, true), LinearLayout.LayoutParams(0, dp(48), 1f).apply { leftMargin = dp(8) })
-    header.addView(button("−", "Minimize GabAI") { showBubble() }, LinearLayout.LayoutParams(dp(44), dp(44)))
-    header.addView(button("×", "Close window and return to floating button") { showBubble() }, LinearLayout.LayoutParams(dp(44), dp(44)))
+    header.addView(button("−", "Minimize GabAI") { showBubble() }, LinearLayout.LayoutParams(dp(48), dp(48)))
+    header.addView(button("×", "Close window and return to floating button") { showBubble() }, LinearLayout.LayoutParams(dp(48), dp(48)))
     chat.addView(header)
     installDrag(header, chatParams, false) {}
     messageList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -210,6 +225,7 @@ class FloatingAssistantService : Service() {
     snapshot.put("status", "Approve Android's screen capture prompt.")
     renderChat()
     hideKeyboard()
+    dismissControls(); removeEdge()
     remove(bubble); remove(chat)
     try { startActivity(Intent(this, CapturePermissionActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     catch (error: Exception) { captureCancelled("Could not request screen capture.") }
@@ -324,31 +340,107 @@ class FloatingAssistantService : Service() {
   }
 
   private fun showBubble() {
+    if (instance !== this || captureRunning) return
+    dismissControls(); removeEdge()
     hideKeyboard(); remove(chat)
     if (!bubble.isAttachedToWindow) try { clamp(bubbleParams); windows.addView(bubble, bubbleParams) } catch (_: Exception) { stopSelf() }
   }
 
   private fun showChat() {
-    if (instance !== this) return
+    if (instance !== this || captureRunning) return
+    dismissControls(); removeEdge()
     remove(bubble)
     if (!chat.isAttachedToWindow) try { clamp(chatParams); windows.addView(chat, chatParams) } catch (_: Exception) { stopSelf() }
   }
 
+  private fun dismissControls() {
+    controlsMenu?.let { remove(it) }
+    controlsMenu = null
+  }
+
+  private fun removeEdge() {
+    edgeHandle?.let { remove(it) }
+    edgeHandle = null; edgeParams = null
+  }
+
+  private fun hideAssistant() {
+    if (captureRunning || instance !== this) return
+    dismissControls(); hideKeyboard(); remove(bubble); remove(chat); removeEdge()
+    val size = screenSize()
+    hiddenOnRight = bubbleParams.x + bubbleParams.width / 2 >= size.first / 2
+    val handle = text(if (hiddenOnRight) "‹" else "›", 30, true).apply {
+      gravity = Gravity.CENTER
+      setTextColor(purple); background = rounded(lavender, 18, purple)
+      bindDescription(this, "Restore GabAI assistant")
+      isClickable = true; isFocusable = true
+      setOnClickListener { showBubble() }
+    }
+    val layout = params(dp(48), dp(64), false).apply {
+      x = if (hiddenOnRight) size.first - width else 0
+      y = bubbleParams.y; clamp(this)
+    }
+    edgeHandle = handle; edgeParams = layout
+    try { windows.addView(handle, layout) } catch (_: Exception) { stopSelf() }
+  }
+
+  private fun showControls() {
+    if (captureRunning || instance !== this || !bubble.isAttachedToWindow) return
+    if (controlsMenu != null) { dismissControls(); return }
+    val menu = LinearLayout(this).apply {
+      orientation = LinearLayout.VERTICAL
+      setPadding(dp(8), dp(8), dp(8), dp(8))
+      background = rounded(cream, 20, lavender); elevation = dp(12).toFloat()
+      bindDescription(this, "Assistant controls")
+      isFocusableInTouchMode = true
+      setOnKeyListener { _, key, event ->
+        if (key == KeyEvent.KEYCODE_BACK) {
+          if (event.action == KeyEvent.ACTION_UP) dismissControls()
+          true
+        } else false
+      }
+      setOnTouchListener { _, event ->
+        if (event.action == MotionEvent.ACTION_OUTSIDE) { dismissControls(); true } else false
+      }
+    }
+    menu.addView(button("Open Assistant", "Open Assistant") { showChat() }, LinearLayout.LayoutParams(-1, dp(52)))
+    menu.addView(button("Hide Assistant", "Hide Assistant") { hideAssistant() }, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(8) })
+    menu.addView(button("Stop Assistant", "Stop Assistant") { dismissControls(); stopSelf() }, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(8) })
+    val layout = params(min(screenSize().first - dp(24), dp(232)), dp(188), true).apply {
+      flags = flags or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+      x = bubbleParams.x; y = bubbleParams.y + bubbleParams.height + dp(8); clamp(this)
+    }
+    controlsMenu = menu
+    try { windows.addView(menu, layout); menu.requestFocus() } catch (_: Exception) { dismissControls() }
+  }
+
   private fun installDrag(view: View, layout: WindowManager.LayoutParams, isBubble: Boolean, onTap: () -> Unit) {
     var startX = 0f; var startY = 0f; var originX = 0; var originY = 0; var dragged = false
+    var longPressed = false
+    val touchSlop = ViewConfiguration.get(this).scaledTouchSlop
+    val longPress = Runnable {
+      if (!dragged && view.isAttachedToWindow) longPressed = view.performLongClick()
+    }
     view.setOnTouchListener { _, event ->
       when (event.actionMasked) {
-        MotionEvent.ACTION_DOWN -> { startX = event.rawX; startY = event.rawY; originX = layout.x; originY = layout.y; dragged = false; true }
+        MotionEvent.ACTION_DOWN -> {
+          main.removeCallbacks(longPress)
+          startX = event.rawX; startY = event.rawY; originX = layout.x; originY = layout.y
+          dragged = false; longPressed = false
+          if (isBubble) main.postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
+          true
+        }
         MotionEvent.ACTION_MOVE -> {
           val dx = event.rawX - startX; val dy = event.rawY - startY
-          if (abs(dx) + abs(dy) > dp(8)) dragged = true
-          if (dragged) {
+          if (abs(dx) + abs(dy) > touchSlop) { dragged = true; main.removeCallbacks(longPress) }
+          if (dragged && !longPressed) {
+            dismissControls()
             layout.x = originX + dx.toInt(); layout.y = originY + dy.toInt(); clamp(layout)
             try { windows.updateViewLayout(if (isBubble) bubble else chat, layout) } catch (_: Exception) { stopSelf() }
           }
           true
         }
-        MotionEvent.ACTION_UP -> { if (!dragged) { if (!view.performClick()) onTap() }; true }
+        MotionEvent.ACTION_UP -> { main.removeCallbacks(longPress); if (!dragged && !longPressed) { if (!view.performClick()) onTap() }; true }
+        MotionEvent.ACTION_CANCEL -> { main.removeCallbacks(longPress); dragged = false; longPressed = false; true }
         else -> true
       }
     }
@@ -387,12 +479,17 @@ class FloatingAssistantService : Service() {
   override fun onConfigurationChanged(newConfig: Configuration) {
     super.onConfigurationChanged(newConfig)
     if (!::chat.isInitialized) return
+    dismissControls()
     val size = screenSize()
     chatParams.width = min(size.first - dp(24), dp(360)); chatParams.height = min(size.second - dp(24), dp(480))
     clamp(chatParams); clamp(bubbleParams)
     try {
       if (chat.isAttachedToWindow) windows.updateViewLayout(chat, chatParams)
       if (bubble.isAttachedToWindow) windows.updateViewLayout(bubble, bubbleParams)
+      edgeHandle?.let { handle -> edgeParams?.let { layout ->
+        layout.x = if (hiddenOnRight) size.first - layout.width else 0
+        clamp(layout); windows.updateViewLayout(handle, layout)
+      } }
       cropWindow?.let { windows.updateViewLayout(it, params(size.first, size.second, false)) }
     } catch (_: Exception) { stopSelf() }
   }
@@ -416,11 +513,13 @@ class FloatingAssistantService : Service() {
   private fun assetImage(path: String): Bitmap = assets.open(path).use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = 4 }) ?: error("Missing mascot") }
 
   override fun onDestroy() {
+    ready = false
     instance = null
     captureRunning = false; frameAccepted = true; main.removeCallbacksAndMessages(null)
     releaseProjection()
     if (::bubble.isInitialized) remove(bubble)
     if (::chat.isInitialized) { hideKeyboard(); remove(chat) }
+    dismissControls(); removeEdge()
     cropWindow?.let { remove(it) }; cropWindow = null
     capturedBitmap?.recycle(); capturedBitmap = null
     captureThread.quitSafely()

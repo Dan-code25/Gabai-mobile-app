@@ -10,7 +10,7 @@ type HomeHeaderProps = {
 };
 
 export function HomeHeader({ greeting, stacked }: HomeHeaderProps) {
-  const { language, setLanguage } = useLanguage();
+  const { language, setLanguage, t } = useLanguage();
   return (
     <View style={[styles.header, stacked && styles.stacked]}>
       <View className="flex-1 flex-row items-center gap-3">
@@ -21,20 +21,17 @@ export function HomeHeader({ greeting, stacked }: HomeHeaderProps) {
           resizeMode="cover"
         />
         <View className="flex-1 gap-0.5">
-          <AppText weight="extraBold" accessibilityRole="header" style={styles.greeting}>
+          <AppText weight="extraBold" accessibilityRole="header" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.greeting}>
             {greeting}
           </AppText>
           <AppText weight="semibold" style={styles.brand}>GabAI</AppText>
         </View>
       </View>
       <View style={styles.language}>
-        {(["en", "fil"] as const).map((value, index) => <View key={value} style={{ flexDirection: "row", alignItems: "center" }}>
-          {index === 1 && <View style={styles.divider} />}
-          <Pressable accessibilityRole="radio" accessibilityLabel={value === "en" ? "English" : "Filipino"} accessibilityState={{ checked: language === value }}
-            onPress={() => { void setLanguage(value).catch(() => undefined); }} style={({ pressed }) => [styles.languageOption, { opacity: pressed ? 0.55 : 1 }]}>
+        {(["en", "fil"] as const).map(value => <Pressable key={value} accessibilityRole="radio" accessibilityLabel={t(value === "en" ? "English" : "Filipino")} accessibilityState={{ checked: language === value }}
+            onPress={() => { void setLanguage(value).catch(() => undefined); }} android_ripple={{ color: "#D7D1E8" }} style={[styles.languageOption, language === value && styles.selected]}>
             <AppText weight="extraBold" style={[styles.languageText, language !== value && styles.muted]}>{value === "en" ? "EN" : "FIL"}</AppText>
-          </Pressable>
-        </View>)}
+          </Pressable>)}
       </View>
     </View>
   );
@@ -49,11 +46,11 @@ const styles = StyleSheet.create({
   language: {
     flexDirection: "row", alignItems: "center", alignSelf: "flex-end",
     borderRadius: 28, backgroundColor: homeTheme.colors.white,
-    paddingHorizontal: 4, borderWidth: 1, borderColor: "#FFFFFF",
+    padding: 4, gap: 8, borderWidth: 1, borderColor: "#FFFFFF",
     boxShadow: "0 5px 16px rgba(74, 55, 129, 0.08)",
   },
-  languageOption: { minWidth: 46, minHeight: 48, paddingHorizontal: 8, paddingVertical: 10, alignItems: "center", justifyContent: "center" },
-  languageText: { fontSize: 16, lineHeight: 22 },
-  divider: { width: 1, height: 16, backgroundColor: "#D7D1E8" },
+  languageOption: { minWidth: 52, minHeight: 48, borderRadius: 24, borderWidth: 1, borderColor: "transparent", paddingHorizontal: 10, paddingVertical: 10, alignItems: "center", justifyContent: "center" },
+  selected: { backgroundColor: homeTheme.colors.lavender, borderColor: homeTheme.colors.purple },
+  languageText: { fontSize: 16, lineHeight: 22, color: homeTheme.colors.purpleDark },
   muted: { color: homeTheme.colors.muted },
 });

@@ -17,28 +17,29 @@ export function PowerButton({ size, onPress, enabled, busy }: PowerButtonProps) 
       accessibilityRole="button"
       accessibilityLabel={t(enabled ? "Stop GabAI floating assistant" : "Start GabAI floating assistant")}
       accessibilityHint={t("Controls the Shiba assistant above other Android apps.")}
-      accessibilityState={{ busy, disabled: busy }}
+      accessibilityState={{ busy, disabled: busy, selected: enabled }}
       disabled={busy}
       onPress={onPress}
       onPressIn={() => setPressed(true)}
       onPressOut={() => setPressed(false)}
-      style={[styles.button, { width: size, height: size, borderRadius: size / 2, opacity: pressed ? 0.8 : 1 }]}
+      style={[styles.button, enabled && styles.active, { width: size, height: size, borderRadius: size / 2, opacity: busy ? 0.7 : pressed ? 0.8 : 1 }]}
     >
       <LinearGradient
-        colors={["#9986FF", "#6B53F5", "#4D31E7"]}
+        colors={enabled ? ["#FFAA98", homeTheme.colors.coral, "#F35B49"] : ["#9986FF", "#6B53F5", "#4D31E7"]}
         locations={[0, 0.4, 1]}
         start={{ x: 0, y: 0 }}
         end={{ x: 0.8, y: 1 }}
         style={[styles.surface, { borderRadius: size / 2 }]}
       >
         {busy ? <ActivityIndicator size="large" color={homeTheme.colors.white} /> :
-          <Ionicons name="power-outline" size={size * 0.43} color={homeTheme.colors.white} accessible={false} />}
+          <Ionicons name={enabled ? "stop" : "power-outline"} size={size * 0.43} color={enabled ? homeTheme.colors.ink : homeTheme.colors.white} accessible={false} />}
       </LinearGradient>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
+  active: { backgroundColor: homeTheme.colors.coral, boxShadow: "0 9px 20px rgba(255,113,91,0.28)" },
   button: {
     backgroundColor: homeTheme.colors.purpleDark, padding: 3, paddingBottom: 6,
     boxShadow: "0 9px 20px rgba(80, 48, 200, 0.28)",

@@ -2,6 +2,11 @@ import type { Language } from "../storage/types";
 
 // English keys are also the fallback. Stored messages and OCR are never translated.
 export const filipino: Record<string, string> = {
+  "Start Assistant": "Simulan ang Katulong", "Stop Assistant": "Ihinto ang Katulong", "Assistant off": "Hindi aktibo ang katulong",
+  "Open Assistant": "Buksan ang Katulong", "Hide Assistant": "Itago ang Katulong",
+  "Restore GabAI assistant": "Ibalik ang katulong na GabAI", "Assistant controls": "Mga kontrol ng katulong",
+  "Open GabAI floating assistant. Drag to move. Long press for controls.": "Buksan ang lumulutang na GabAI. I-drag para ilipat. Pindutin nang matagal para sa mga kontrol.",
+  "GabAI could not start. Check overlay permission and try again.": "Hindi masimulan ang GabAI. Tingnan ang pahintulot na lumutang at subukan muli.",
   "GabAI could not produce a safe answer. Never share your password or OTP. Try a simpler question.": "Hindi nakagawa ng ligtas na sagot ang GabAI. Huwag ibahagi ang password o OTP. Subukan ang mas simpleng tanong.",
   Home: "Simula", Chat: "Usapan", History: "Nakaraan", Settings: "Settings",
   "Loading GabAI": "Inihahanda ang GabAI", "GabAI waving Shiba": "Kumakaway na Shiba ng GabAI",

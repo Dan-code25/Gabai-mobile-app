@@ -35,7 +35,7 @@ class FloatingAssistantModule : Module() {
       permissionPromise = null
       Handler(Looper.getMainLooper()).post { FloatingAssistantService.instance?.stopSelf() }
     }
-    Function("isEnabled") { FloatingAssistantService.instance != null }
+    Function("isEnabled") { FloatingAssistantService.instance?.ready == true }
     AsyncFunction("requestOverlayPermission") { promise: Promise ->
       val activity = appContext.currentActivity
       if (activity == null) promise.reject("E_ACTIVITY", "Open GabAI to enable the assistant.", null)
@@ -58,11 +58,29 @@ class FloatingAssistantModule : Module() {
         permissionPromise = null
       }
     }
-    AsyncFunction("start") {
-      val context = appContext.reactContext ?: error("Open GabAI first.")
-      check(Settings.canDrawOverlays(context)) { "Allow GabAI to display over other apps first." }
-      context.startForegroundService(Intent(context, FloatingAssistantService::class.java))
-      Unit
+    AsyncFunction("start") { promise: Promise ->
+      val context = appContext.reactContext
+      if (context == null || !Settings.canDrawOverlays(context)) {
+        promise.reject("E_OVERLAY_PERMISSION", "Allow GabAI to display over other apps, then tap the power button again.", null)
+      } else if (FloatingAssistantService.instance?.ready == true) {
+        promise.resolve(null)
+      } else try {
+        context.startForegroundService(Intent(context, FloatingAssistantService::class.java))
+        val handler = Handler(Looper.getMainLooper())
+        val deadline = android.os.SystemClock.uptimeMillis() + 3000
+        val checkReady = object : Runnable {
+          override fun run() {
+            if (FloatingAssistantService.instance?.ready == true) promise.resolve(null)
+            else if (android.os.SystemClock.uptimeMillis() >= deadline) {
+              FloatingAssistantService.instance?.stopSelf()
+              promise.reject("E_OVERLAY_START", "GabAI could not start. Check overlay permission and try again.", null)
+            } else handler.postDelayed(this, 50)
+          }
+        }
+        handler.post(checkReady)
+      } catch (error: Exception) {
+        promise.reject("E_OVERLAY_START", "GabAI could not start. Check overlay permission and try again.", error)
+      }
     }.runOnQueue(Queues.MAIN)
     AsyncFunction("stop") { FloatingAssistantService.instance?.stopSelf() }.runOnQueue(Queues.MAIN)
     AsyncFunction("updateChat") { snapshot: String ->

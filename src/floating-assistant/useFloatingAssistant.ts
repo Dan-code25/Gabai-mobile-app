@@ -29,6 +29,10 @@ export function useFloatingAssistant() {
       if (!getSavedModel() && !await importModel()) return;
       if (!await floatingAssistant.requestOverlayPermission()) throw new Error("Allow GabAI to display over other apps, then tap the power button again.");
       await floatingAssistant.start();
+      setEnabled(floatingAssistant.isEnabled());
+    } catch (error) {
+      setEnabled(floatingAssistant?.isEnabled() ?? false);
+      throw error;
     } finally { pending.current = false; setBusy(false); }
   }
   return { enabled, busy, toggle };
