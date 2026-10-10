@@ -1,26 +1,37 @@
 {
   "expo": {
-    "name": "GabayAI",
+    "name": "GabAI",
     "slug": "GabayAI",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/images/gabai-logo.png",
+    "scheme": "gabai",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true
     },
     "android": {
+      "allowBackup": false,
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#FF8000",
+        "foregroundImage": "./assets/images/gabai-logo.png"
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.anonymous.GabayAI"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./assets/images/gabai-logo.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      [
+        "llama.rn",
+        {
+          "enableOpenCLAndHexagon": false
+        }
+      ],
+      "expo-router",
+      "expo-font"
+    ]
   }
 }
